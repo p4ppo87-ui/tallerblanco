@@ -51,10 +51,11 @@ export default function TallerApp() {
     setLoading(false);
   }
 
-  // ====================== CÁLCULOS CORREGIDOS ======================
+    // ====================== CÁLCULOS CORREGIDOS DE FINANZAS ======================
   const mes = mesActual();
   const ordenesMes = ordenes.filter(o => (o.fecha || "").startsWith(mes));
 
+  // Solo órdenes completadas Y cobradas este mes
   const ordenesCompletadasCobradas = ordenesMes.filter(o => 
     o.estado === "completado" && o.cobrado === true
   );
@@ -74,15 +75,14 @@ export default function TallerApp() {
     .filter(g => (g.fecha || "").startsWith(mes))
     .reduce((s, g) => s + (+g.monto || 0), 0);
 
-  // Utilidad real: Ingresos - Costo de repuestos - Gastos
+  // === UTILIDAD REAL (esto es lo que no te descontaba) ===
   const utilidadMes = ingresosCobradonMes - costoRepuestosMes - gastosMes;
 
   const ordenesActivas = ordenes.filter(o => o.estado !== "completado").length;
   const pendientesCobro = ordenes.filter(o => o.estado === "completado" && !o.cobrado);
   const totalPendienteCobro = pendientesCobro.reduce((s, o) => s + (+o.costo || 0), 0);
   const totalFacturado = ordenes.filter(o => o.cobrado).reduce((s, o) => s + (+o.costo || 0), 0);
-  // =================================================================
-
+  // =============================================================================
   async function addOrden() {
     if (!form.cliente || !form.servicio) return;
     const folio = "OT-" + String(ordenes.length + 1).padStart(3, "0");
