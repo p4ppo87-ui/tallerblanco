@@ -130,8 +130,210 @@ function TabInicio({ ...props }: any) {
 }
 
 function TabFinanzas({ ordenes, gastos, setModal, setForm, deleteGasto }: any) {
-  // ... tu código original de TabFinanzas (ya estaba bien)
-}
+  const [mesFiltro, setMesFiltro] = useState(mesActual());
+  const [vistaComparativa, setVistaComparativa] = useState(false);
 
+  // Función para calcular ganancia real de una orden (ya estaba bien)
+  function gananciaOrden(o: any) {
+    const items = o.items || [];
+    const costoRepuestos = items.reduce((s: number, i: any) => 
+      s + ((+i.costo_compra || +i.costoCompra || 0) * +i.cantidad), 0);
+    const ventaRepuestos = items.reduce((s: number, i: any) => 
+      s + (+i.precio * +i.cantidad), 0);
+    const manoObra = +o.costo_mano_obra || Math.max(0, (+o.costo || 0) - ventaRepuestos);
+    return manoObra + (ventaRepuestos - costoRepuestos);
+  }
+
+  // Meses disponibles
+  const mesesConDatos = (() => {
+    const set = new Set<string>();
+    ordenes.forEach((o: any) => { if (o.fecha) set.add(o.fecha.slice(0, 7)); });
+    gastos.forEach((g: any) => { if (g.fecha) set.add(g.fecha.slice(0, 7)); });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  })();
+
+  // ====================== CÁLCULOS DEL MES SELECCIONADO ======================
+  const ordenesMesCobradas = ordenes.filter((o: any) =>
+    (o.cobrado === true || o.estado === "completado") && 
+    (o.fecha || "").startsWith(mesFiltro)
+  );
+
+  const ingresosDelMes = ordenesMesCobradas.reduce((s: number, o: any) => s + (+o.costo || 0), 0);
+
+  const costoRepuestosMes = ordenesMesCobradas.reduce((s: number, o: any) => {
+    const items = o.items || [];
+    return s + items.reduce((ss: number, i: any) => 
+      ss + ((+i.costo_compra || +i.costoCompra || 0) * (+i.cantidad || 0)), 0);
+  }, 0);
+
+  const gananciaRealMes = ordenesMesCobradas.reduce((s: number, o: any) => s + gananciaOrden(o), 0);
+
+  const gastosDelMes = gastos
+    .filter((g: any) => (g.fecha || "").startsWith(mesFiltro))
+    .reduce((s: number, g: any) => s + (+g.monto || 0), 0);
+
+  const utilidadRealMes = gananciaRealMes - gastosDelMes;
+
+  // Gastos por categoría
+  const gastosMesArr = gastos.filter((g: any) => (g.fecha || "").startsWith(mesFiltro));
+  const gastosCat: Record<string, number> = {};
+  gastosMesArr.forEach((g: any) => {
+    const cat = g.categoria || "otro";
+    gastosCat[cat] = (gastosCat[cat] || 0) + (+g.monto || 0);
+  });
+
+  // Últimos 6 meses para vista comparativa
+  const ultimos6 = mesesConDatos.slice(0, 6).map(m => {
+    const ords = ordenes.filter((o: any) => 
+      (o.cobrado === true || o.estado === "completado") && (o.fecha || "").startsWith(m)
+    );
+    const ing = ords.reduce((s: number, o: any) => s + (+o.costo || 0), 0);
+    const gan = ords.reduce((s: number, o: any) => s + gananciaOrden(o), 0);
+    const gas = gastos.filter((g: any) => (g.fecha || "").startsWith(m))
+                     .reduce((s: number, g: any) => s + (+g.monto || 0), 0);
+    return { mes: m, ingresos: ing, gastos: gas, gananciaReal: gan - gas };
+  });
+
+  const labelMes = (m: string) => {
+    const [y, mo] = m.split("-");
+    const nombres = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    return `${nombres[+mo - 1]} ${y}`;
+  };
+
+  return (
+    <div>
+      <div className="view-toggle">
+        <button className={`view-btn ${!vistaComparativa ? "active" : ""}`} onClick={() => setVistaComparativa(false)}>Por mes</button>
+        <button className={`view-btn ${vistaComparativa ? "active" : ""}`} onClick={() => setVistaComparativa(true)}>Comparar</button>
+      </div>
+
+      {vistaComparativa && (
+        <div className="card">
+          <div className="section-title">Últimos {ultimos6.length} meses</div>
+          {ultimos6.map(({ mes, ingresos, gastos: gas, gananciaReal }) => {
+            const positivo = gananciaReal >= 0;
+            return (
+              <div key={mes} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: mes === mesActual() ? "#e55a00" : "#f1f5f9" }}>{labelMes(mes)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: positivo ? "#4ade80" : "#f87171" }}>{fmt(gananciaReal)}</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#64748b", marginBottom: 4 }}>
+                  <span>↑ {fmt(ingresos)}</span><span>↓ {fmt(gas)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!vistaComparativa && (
+        <div>
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label className="form-label">Mes a ver</label>
+            <select className="form-select" value={mesFiltro} onChange={e => setMesFiltro(e.target.value)}>
+              {mesesConDatos.length === 0 ? (
+                <option value={mesActual()}>{labelMes(mesActual())}</option>
+              ) : (
+                mesesConDatos.map(m => (
+                  <option key={m} value={m}>
+                    {labelMes(m)}{m === mesActual() ? " (actual)" : ""}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div className="kpi-grid">
+            <div className="kpi-card" style={{ borderLeft: "3px solid #4ade80" }}>
+              <div className="kpi-label">Facturado</div>
+              <div className="kpi-val" style={{ color: "#4ade80", fontSize: 18 }}>{fmt(ingresosDelMes)}</div>
+            </div>
+            <div className="kpi-card" style={{ borderLeft: "3px solid #f87171" }}>
+              <div className="kpi-label">Gastos</div>
+              <div className="kpi-val" style={{ color: "#f87171", fontSize: 18 }}>{fmt(gastosDelMes)}</div>
+            </div>
+            {costoRepuestosMes > 0 && (
+              <div className="kpi-card" style={{ borderLeft: "3px solid #f87171" }}>
+                <div className="kpi-label">Costo repuestos</div>
+                <div className="kpi-val" style={{ color: "#f87171", fontSize: 18 }}>− {fmt(costoRepuestosMes)}</div>
+              </div>
+            )}
+            <div className="kpi-card" style={{ borderLeft: `3px solid ${utilidadRealMes >= 0 ? "#fb923c" : "#f87171"}` }}>
+              <div className="kpi-label">Ganancia real</div>
+              <div className="kpi-val" style={{ color: utilidadRealMes >= 0 ? "#fb923c" : "#f87171", fontSize: 18 }}>{fmt(utilidadRealMes)}</div>
+            </div>
+          </div>
+
+          {/* Sección de Gastos */}
+          <div className="card" style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div className="section-title" style={{ marginBottom: 0 }}>Gastos del mes</div>
+              <button className="btn-sm btn-primary" onClick={() => { setForm({ fecha: today() }); setModal("gasto"); }}>
+                + Gasto
+              </button>
+            </div>
+
+            {gastosMesArr.length === 0 ? (
+              <div className="empty" style={{ padding: "40px 20px" }}>
+                No hay gastos registrados en este mes.<br />
+                Usa el botón "+" para agregar uno.
+              </div>
+            ) : (
+              <>
+                {/* Gastos por categoría */}
+                {Object.keys(gastosCat).length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div className="section-title" style={{ fontSize: 10, marginBottom: 10 }}>Por categoría</div>
+                    {Object.entries(gastosCat).map(([cat, total]: any) => {
+                      const pct = gastosDelMes > 0 ? Math.round((total / gastosDelMes) * 100) : 0;
+                      return (
+                        <div key={cat} style={{ marginBottom: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                            <span style={{ textTransform: "capitalize", color: "#94a3b8" }}>{cat}</span>
+                            <span style={{ color: "#e55a00" }}>{fmt(total)} ({pct}%)</span>
+                          </div>
+                          <div className="progress-wrap">
+                            <div className="progress-bar" style={{ width: `${pct}%`, background: "#e55a00" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Detalle de gastos */}
+                <div>
+                  <div className="section-title" style={{ fontSize: 10, marginBottom: 8 }}>Detalle</div>
+                  {gastosMesArr.map((g: any) => (
+                    <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid #1f2937" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13 }}>{g.concepto}</div>
+                        <div style={{ fontSize: 10, color: "#64748b", textTransform: "capitalize" }}>
+                          {g.categoria || "otro"} · {g.fecha}
+                        </div>
+                      </div>
+                      <span style={{ color: "#f87171", fontWeight: 700, fontSize: 13 }}>{fmt(g.monto)}</span>
+                      <button className="btn-sm" style={{ background: "#1e293b", color: "#94a3b8" }} 
+                        onClick={() => { 
+                          setForm({ _editId: g.id, concepto: g.concepto, monto: g.monto, categoria: g.categoria, fecha: g.fecha }); 
+                          setModal("gasto"); 
+                        }}>
+                        ✏
+                      </button>
+                      <button className="btn-sm" style={{ background: "#7f1d1d", color: "#f87171" }} onClick={() => deleteGasto(g.id)}>
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 // Resto de funciones (TabOrdenes, TabClientes, TabInventario, ModalOrden, etc.) 
 // permanecen exactamente igual que en tu código original.
