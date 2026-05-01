@@ -7,21 +7,283 @@ const supabase = createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNleWdrbnpscnVmdGZlemNqcGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjY3MDQsImV4cCI6MjA5MTAwMjcwNH0.vODo6mIsy2QY2f1Mh5GstMJfQ3U5YmPBxDmmzozorWQ"
 );
 
-const TABS = ["Inicio", "Órdenes", "Finanzas", "Clientes", "Inventario"];
 const TOPE_MONOTRIBUTO = 70113407;
-const estadoColor: Record<string, string> = { completado: "#22c55e", "en proceso": "#f59e0b", pendiente: "#94a3b8" };
-const estadoBg: Record<string, string> = { completado: "#052e16", "en proceso": "#431407", pendiente: "#1e293b" };
+const estadoColor: Record<string, string> = {
+  completado: "#22c55e",
+  "en proceso": "#f59e0b",
+  pendiente: "#94a3b8",
+  "esperando repuesto": "#f97316",
+};
+const estadoBg: Record<string, string> = {
+  completado: "#052e16",
+  "en proceso": "#431407",
+  pendiente: "#1e293b",
+  "esperando repuesto": "#431407",
+};
 
-// ─── Calcula la ganancia real de una orden descontando costo de repuestos ───
 function calcGananciaOrden(o: any): number {
   const items: any[] = o.repuestos || o.items || [];
   const costoRepuestos = items.reduce((s: number, item: any) => {
     const costo = Number(item.costo_compra ?? item.costoCompra ?? item.costo ?? 0);
-    const cant  = Number(item.cantidad ?? 1);
+    const cant = Number(item.cantidad ?? 1);
     return s + costo * cant;
   }, 0);
   return Number(o.costo || 0) - costoRepuestos;
 }
+
+const fmt = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
+
+const GLOBAL_CSS = `
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: #0a0f1a; }
+  body { overscroll-behavior: none; }
+
+  .app {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #0a0f1a;
+    color: #e2e8f0;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  .header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border-bottom: 2px solid #f97316;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .logo { font-size: 18px; font-weight: 900; letter-spacing: 2px; color: #f97316; }
+  .fecha { font-size: 10px; color: #64748b; letter-spacing: 1px; }
+
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    padding-bottom: 90px;
+  }
+
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: #0f172a;
+    border-top: 2px solid #f97316;
+    display: flex;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .nav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 4px 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    gap: 3px;
+  }
+  .nav-btn.active { background: #1e293b; }
+  .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-label { font-size: 9px; letter-spacing: 1px; color: #64748b; text-transform: uppercase; font-weight: 700; }
+  .nav-btn.active .nav-label { color: #f97316; }
+
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .kpi-card {
+    background: #0f172a;
+    border-radius: 8px;
+    padding: 14px 12px;
+    border-left: 3px solid var(--accent);
+  }
+  .kpi-label { font-size: 9px; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .kpi-val { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; }
+  .kpi-sub { font-size: 9px; color: #475569; margin-top: 4px; }
+
+  .card {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-title {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #f97316;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  .orden-item {
+    padding: 12px 0;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .orden-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
+
+  .btn {
+    border: none;
+    border-radius: 6px;
+    padding: 12px 20px;
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .btn-primary { background: #f97316; color: #0a0f1a; }
+  .btn-success { background: #166534; color: #4ade80; }
+  .btn-danger  { background: #7f1d1d; color: #f87171; }
+  .btn-ghost   { background: #1e293b; color: #94a3b8; }
+  .btn-sm { padding: 8px 14px; font-size: 11px; min-height: 36px; border-radius: 4px; }
+  .btn-full { width: 100%; }
+  .btn-fab {
+    position: fixed;
+    bottom: 80px;
+    right: calc(50% - 228px);
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #f97316;
+    color: #0a0f1a;
+    border: none;
+    font-size: 28px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(249,115,22,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+  }
+  @media (max-width: 480px) {
+    .btn-fab { right: 20px; }
+  }
+
+  .form-group { margin-bottom: 14px; }
+  .form-label { font-size: 10px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px; }
+  .form-input, .form-select {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 12px 14px;
+    border-radius: 6px;
+    width: 100%;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .form-input:focus, .form-select:focus { outline: none; border-color: #f97316; }
+
+  .modal-bg {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal-box {
+    background: #0f172a;
+    border: 1px solid #f97316;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 20px 40px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-handle {
+    width: 40px; height: 4px;
+    background: #334155; border-radius: 2px;
+    margin: 0 auto 16px;
+  }
+
+  .progress-wrap { background: #1e293b; border-radius: 3px; height: 8px; overflow: hidden; }
+  .progress-bar  { height: 100%; border-radius: 3px; }
+
+  .alert-item {
+    background: #431407;
+    border: 1px solid #f97316;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+
+  .cobro-item {
+    background: #1c1208;
+    border: 1px solid #d97706;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .select-inline {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    min-height: 36px;
+  }
+
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .empty { color: #475569; font-size: 13px; text-align: center; padding: 32px 0; }
+  .loading {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #0a0f1a; color: #f97316; font-family: 'Courier New', monospace;
+    font-size: 14px; letter-spacing: 3px;
+  }
+`;
+
+const TABS = [
+  { id: "Inicio",      icon: "🏠", label: "Inicio" },
+  { id: "Órdenes",    icon: "🔧", label: "Órdenes" },
+  { id: "Finanzas",   icon: "💰", label: "Finanzas" },
+  { id: "Clientes",   icon: "👤", label: "Clientes" },
+  { id: "Inventario", icon: "📦", label: "Stock" },
+];
 
 export default function TallerBlanco() {
   const [tab, setTab] = useState("Inicio");
@@ -51,36 +313,26 @@ export default function TallerBlanco() {
     setLoading(false);
   }
 
-  // ─── KPIs: solo órdenes completadas Y cobradas ───────────────────────────
   const cobradas       = ordenes.filter(o => o.estado === "completado" && o.cobrado === true);
   const sinCobrar      = ordenes.filter(o => o.estado === "completado" && !o.cobrado);
-
   const totalIngresos  = cobradas.reduce((s, o) => s + Number(o.costo || 0), 0);
   const totalGanancia  = cobradas.reduce((s, o) => s + calcGananciaOrden(o), 0);
   const totalGastos    = gastos.reduce((s, g) => s + Number(g.monto || 0), 0);
   const utilidad       = totalGanancia - totalGastos;
+  const ordenesActivas = ordenes.filter(o => o.estado !== "completado").length;
+  const aCobrar        = sinCobrar.reduce((s, o) => s + Number(o.costo || 0), 0);
+  const completadasCount = cobradas.length;
+  const ticketPromedio = completadasCount ? Math.round(totalIngresos / completadasCount) : 0;
+  const pctMonotributo = Math.min(100, Math.round((totalIngresos / TOPE_MONOTRIBUTO) * 100));
+  const stockBajo      = inventario.filter(i => i.cantidad <= i.minimo).length;
 
-  const ordenesActivas    = ordenes.filter(o => o.estado !== "completado").length;
-  const aCobrar           = sinCobrar.reduce((s, o) => s + Number(o.costo || 0), 0);
-  const completadasCount  = cobradas.length;
-  const ticketPromedio    = completadasCount ? Math.round(totalIngresos / completadasCount) : 0;
-  const pctMonotributo    = Math.min(100, Math.round((totalIngresos / TOPE_MONOTRIBUTO) * 100));
-  const stockBajo         = inventario.filter(i => i.cantidad <= i.minimo).length;
-
-  // ─── CRUD ─────────────────────────────────────────────────────────────────
   async function addOrden() {
     const folio = `OT-${String(ordenes.length + 1).padStart(3, "0")}`;
     const nuevo = {
-      folio,
-      cliente:  form.cliente,
-      vehiculo: form.vehiculo,
-      placa:    form.placa,
-      servicio: form.servicio,
-      mecanico: form.mecanico,
-      costo:    Number(form.costo) || 0,
-      estado:   form.estado || "pendiente",
-      fecha:    form.fecha,
-      cobrado:  false,          // ← siempre inicia sin cobrar
+      folio, cliente: form.cliente, vehiculo: form.vehiculo, placa: form.placa,
+      servicio: form.servicio, mecanico: form.mecanico,
+      costo: Number(form.costo) || 0, estado: form.estado || "pendiente",
+      fecha: form.fecha, cobrado: false,
     };
     const { data, error } = await supabase.from("ordenes").insert([nuevo]).select();
     if (data && !error) setOrdenes(prev => [data[0], ...prev]);
@@ -106,7 +358,6 @@ export default function TallerBlanco() {
     setOrdenes(prev => prev.map(o => o.id === id ? { ...o, estado } : o));
   }
 
-  // ─── NUEVO: marcar cobrado ─────────────────────────────────────────────────
   async function marcarCobrado(id: number) {
     const { error } = await supabase.from("ordenes").update({ cobrado: true }).eq("id", id);
     if (!error) setOrdenes(prev => prev.map(o => o.id === id ? { ...o, cobrado: true } : o));
@@ -120,423 +371,354 @@ export default function TallerBlanco() {
     setInventario(prev => prev.map(i => i.id === id ? { ...i, cantidad: nueva } : i));
   }
 
-  // ─── Estilos ───────────────────────────────────────────────────────────────
-  const s: any = {
-    app: { minHeight: "100vh", background: "#0a0f1a", color: "#e2e8f0", fontFamily: "'Courier New', monospace" },
-    header: { background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)", borderBottom: "1px solid #f97316", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" },
-    logo: { fontSize: 22, fontWeight: 900, letterSpacing: 3, color: "#f97316", textTransform: "uppercase" },
-    sub: { fontSize: 11, color: "#64748b", letterSpacing: 2 },
-    nav: { display: "flex", gap: 4, background: "#0f172a", padding: "8px 24px", borderBottom: "1px solid #1e293b", overflowX: "auto" },
-    navBtn: (active: boolean) => ({ background: active ? "#f97316" : "transparent", color: active ? "#0a0f1a" : "#64748b", border: "none", padding: "8px 16px", cursor: "pointer", fontFamily: "'Courier New', monospace", fontWeight: 700, fontSize: 12, letterSpacing: 1, borderRadius: 2, whiteSpace: "nowrap" }),
-    main: { padding: 24, maxWidth: 1100, margin: "0 auto" },
-    grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 },
-    cardAccent: (color: string) => ({ background: "#0f172a", border: `1px solid ${color}`, borderLeft: `4px solid ${color}`, borderRadius: 4, padding: 20 }),
-    kpiLabel: { fontSize: 11, color: "#64748b", letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 },
-    kpiVal: (color: string) => ({ fontSize: 28, fontWeight: 900, color: color || "#e2e8f0" }),
-    section: { background: "#0f172a", border: "1px solid #1e293b", borderRadius: 4, padding: 20, marginBottom: 16 },
-    sectionTitle: { fontSize: 12, letterSpacing: 3, color: "#f97316", textTransform: "uppercase", marginBottom: 16, fontWeight: 700 },
-    table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-    th: { textAlign: "left", padding: "8px 12px", fontSize: 10, letterSpacing: 2, color: "#64748b", borderBottom: "1px solid #1e293b" },
-    td: { padding: "10px 12px", borderBottom: "1px solid #0f172a" },
-    badge: (estado: string) => ({ background: estadoBg[estado] || "#1e293b", color: estadoColor[estado] || "#94a3b8", padding: "2px 8px", borderRadius: 2, fontSize: 11, fontWeight: 700 }),
-    btn: (variant?: string) => ({ background: variant === "primary" ? "#f97316" : variant === "danger" ? "#991b1b" : variant === "success" ? "#166534" : "#1e293b", color: variant === "primary" ? "#0a0f1a" : "#e2e8f0", border: "none", padding: "8px 16px", cursor: "pointer", fontFamily: "'Courier New', monospace", fontWeight: 700, fontSize: 12, letterSpacing: 1, borderRadius: 2 }),
-    input: { background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", padding: "10px 12px", borderRadius: 2, width: "100%", fontFamily: "'Courier New', monospace", fontSize: 13, boxSizing: "border-box" },
-    select: { background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", padding: "10px 12px", borderRadius: 2, width: "100%", fontFamily: "'Courier New', monospace", fontSize: 13 },
-    label: { fontSize: 11, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", display: "block", marginBottom: 4 },
-    formGroup: { marginBottom: 14 },
-    modalBg: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 },
-    modalBox: { background: "#0f172a", border: "1px solid #f97316", borderRadius: 4, padding: 24, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto" },
-    alert: { background: "#431407", border: "1px solid #f97316", borderRadius: 4, padding: "10px 14px", marginBottom: 8, fontSize: 13 },
-    row: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 },
-    searchInput: { background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", padding: "8px 12px", borderRadius: 2, fontFamily: "'Courier New', monospace", fontSize: 13 },
-  };
+  if (loading) return <div className="loading">CARGANDO...</div>;
 
-  if (loading) return (
-    <div style={{ ...s.app, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: "#f97316", fontSize: 14, letterSpacing: 3 }}>CARGANDO...</div>
+  const inp = (field: string, label: string, type = "text") => (
+    <div className="form-group" key={field}>
+      <label className="form-label">{label}</label>
+      <input className="form-input" type={type} inputMode={type === "number" ? "numeric" : undefined}
+        value={form[field] || ""} onChange={e => setForm((p: any) => ({ ...p, [field]: e.target.value }))} />
     </div>
   );
 
+  const closeModal = () => { setModal(null); setForm({}); };
+
   return (
-    <div style={s.app}>
-      {/* Header */}
-      <div style={s.header}>
-        <div>
-          <div style={s.logo}>🔩 Taller Blanco</div>
-          <div style={s.sub}>SISTEMA DE GESTIÓN</div>
+    <>
+      <style>{GLOBAL_CSS}</style>
+      <div className="app">
+
+        <div className="header">
+          <div className="logo">🔩 TALLER BLANCO</div>
+          <div className="fecha">{new Date().toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}</div>
         </div>
-        <div style={{ fontSize: 12, color: "#64748b" }}>
-          {new Date().toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}
-        </div>
-      </div>
 
-      {/* Nav */}
-      <div style={s.nav}>
-        {TABS.map(t => <button key={t} style={s.navBtn(tab === t)} onClick={() => setTab(t)}>{t}</button>)}
-      </div>
+        <div className="main">
 
-      <div style={s.main}>
-
-        {/* ══════════════════ INICIO ══════════════════ */}
-        {tab === "Inicio" && (
-          <div>
-            <div style={s.grid}>
-              <div style={s.cardAccent("#22c55e")}>
-                <div style={s.kpiLabel}>Cobrado</div>
-                <div style={s.kpiVal("#22c55e")}>${totalIngresos.toLocaleString("es-AR")}</div>
-              </div>
-              <div style={s.cardAccent("#fb923c")}>
-                <div style={s.kpiLabel}>Ganancia real</div>
-                <div style={s.kpiVal("#fb923c")}>${totalGanancia.toLocaleString("es-AR")}</div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>descontando repuestos</div>
-              </div>
-              <div style={s.cardAccent("#ef4444")}>
-                <div style={s.kpiLabel}>Gastos</div>
-                <div style={s.kpiVal("#ef4444")}>${totalGastos.toLocaleString("es-AR")}</div>
-              </div>
-              <div style={s.cardAccent(utilidad >= 0 ? "#f97316" : "#ef4444")}>
-                <div style={s.kpiLabel}>Utilidad neta</div>
-                <div style={s.kpiVal(utilidad >= 0 ? "#f97316" : "#ef4444")}>${utilidad.toLocaleString("es-AR")}</div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>ganancia − gastos</div>
-              </div>
-              <div style={s.cardAccent("#a78bfa")}>
-                <div style={s.kpiLabel}>Ticket prom.</div>
-                <div style={s.kpiVal("#a78bfa")}>${ticketPromedio.toLocaleString("es-AR")}</div>
-              </div>
-              <div style={s.cardAccent("#f59e0b")}>
-                <div style={s.kpiLabel}>Activas</div>
-                <div style={s.kpiVal("#f59e0b")}>{ordenesActivas}</div>
-              </div>
-              <div style={s.cardAccent("#3b82f6")}>
-                <div style={s.kpiLabel}>A cobrar</div>
-                <div style={s.kpiVal("#3b82f6")}>${aCobrar.toLocaleString("es-AR")}</div>
-              </div>
-            </div>
-
-            {/* Tope monotributo */}
-            <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 4, padding: 20, marginBottom: 16 }}>
-              <div style={s.sectionTitle}>Tope Monotributo Cat. H</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}>
-                <span style={{ color: "#94a3b8" }}>Facturado: ${totalIngresos.toLocaleString("es-AR")}</span>
-                <span style={{ color: pctMonotributo > 80 ? "#ef4444" : "#64748b" }}>{pctMonotributo}%</span>
-              </div>
-              <div style={{ background: "#1e293b", borderRadius: 2, height: 8 }}>
-                <div style={{ width: `${pctMonotributo}%`, height: 8, background: pctMonotributo > 80 ? "#ef4444" : "#f97316", borderRadius: 2 }} />
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>Tope: ${TOPE_MONOTRIBUTO.toLocaleString("es-AR")}</div>
-            </div>
-
-            {/* Pendientes de cobro */}
-            {sinCobrar.length > 0 && (
-              <div style={{ ...s.section, borderColor: "#f59e0b" }}>
-                <div style={{ ...s.sectionTitle, color: "#f59e0b" }}>⏳ Pendientes de cobro ({sinCobrar.length})</div>
-                {sinCobrar.map((o: any) => (
-                  <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 12, marginBottom: 12, borderBottom: "1px solid #1e293b" }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{o.cliente}</div>
-                      <div style={{ fontSize: 11, color: "#64748b" }}>{o.folio} · {o.servicio}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ fontSize: 14, color: "#f97316", fontWeight: 900 }}>${(o.costo || 0).toLocaleString("es-AR")}</div>
-                      <button style={{ ...s.btn("success"), padding: "6px 12px", fontSize: 11 }} onClick={() => marcarCobrado(o.id)}>
-                        ✓ Cobrado
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div style={s.section}>
-                <div style={s.sectionTitle}>Órdenes activas</div>
-                {ordenes.filter(o => o.estado !== "completado").length === 0
-                  ? <div style={{ color: "#64748b", fontSize: 13 }}>Sin órdenes activas</div>
-                  : ordenes.filter(o => o.estado !== "completado").slice(0, 5).map((o: any) => (
-                    <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 12, marginBottom: 12, borderBottom: "1px solid #1e293b" }}>
-                      <div><div style={{ fontSize: 13, fontWeight: 700 }}>{o.cliente}</div><div style={{ fontSize: 11, color: "#64748b" }}>{o.servicio}</div></div>
-                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 14, color: "#f97316", fontWeight: 900 }}>${(o.costo || 0).toLocaleString("es-AR")}</div><span style={s.badge(o.estado)}>{o.estado}</span></div>
-                    </div>
-                  ))}
-              </div>
-              <div style={s.section}>
-                <div style={s.sectionTitle}>⚠ Stock bajo</div>
-                {inventario.filter(i => i.cantidad <= i.minimo).length === 0
-                  ? <div style={{ color: "#64748b", fontSize: 13 }}>✓ Todo en orden</div>
-                  : inventario.filter(i => i.cantidad <= i.minimo).map((i: any) => (
-                    <div key={i.id} style={s.alert}><strong>{i.nombre}</strong> — {i.cantidad} {i.unidad} (mín. {i.minimo})</div>
-                  ))}
-                <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-                  <div style={s.cardAccent("#22c55e")}><div style={s.kpiLabel}>Artículos</div><div style={s.kpiVal("#22c55e")}>{inventario.length}</div></div>
-                  <div style={s.cardAccent("#ef4444")}><div style={s.kpiLabel}>Stock bajo</div><div style={s.kpiVal("#ef4444")}>{stockBajo}</div></div>
+          {/* ══ INICIO ══ */}
+          {tab === "Inicio" && (
+            <div>
+              <div className="kpi-grid">
+                <div className="kpi-card" style={{ "--accent": "#22c55e" } as any}>
+                  <div className="kpi-label">Cobrado</div>
+                  <div className="kpi-val">{fmt(totalIngresos)}</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#fb923c" } as any}>
+                  <div className="kpi-label">Ganancia real</div>
+                  <div className="kpi-val">{fmt(totalGanancia)}</div>
+                  <div className="kpi-sub">sin repuestos</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#ef4444" } as any}>
+                  <div className="kpi-label">Gastos</div>
+                  <div className="kpi-val">{fmt(totalGastos)}</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": utilidad >= 0 ? "#f97316" : "#ef4444" } as any}>
+                  <div className="kpi-label">Utilidad neta</div>
+                  <div className="kpi-val">{fmt(utilidad)}</div>
+                  <div className="kpi-sub">ganancia − gastos</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#f59e0b" } as any}>
+                  <div className="kpi-label">Activas</div>
+                  <div className="kpi-val">{ordenesActivas}</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#3b82f6" } as any}>
+                  <div className="kpi-label">A cobrar</div>
+                  <div className="kpi-val">{fmt(aCobrar)}</div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
 
-        {/* ══════════════════ ÓRDENES ══════════════════ */}
-        {tab === "Órdenes" && (
-          <div>
-            <div style={s.row}>
-              <input style={{ ...s.searchInput, width: 250 }} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
-              <button style={s.btn("primary")} onClick={() => setModal("orden")}>+ Nueva Orden</button>
-            </div>
-            <div style={s.section}>
-              <div style={s.sectionTitle}>Órdenes de Trabajo</div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={s.table}>
-                  <thead>
-                    <tr>
-                      {["Folio","Cliente","Vehículo","Placa","Servicio","Mecánico","Costo","Ganancia","Estado","Cobrado","Cambiar"].map(h =>
-                        <th key={h} style={s.th}>{h}</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ordenes
-                      .filter(o =>
-                        o.cliente?.toLowerCase().includes(search.toLowerCase()) ||
-                        o.vehiculo?.toLowerCase().includes(search.toLowerCase()) ||
-                        o.folio?.toLowerCase().includes(search.toLowerCase())
-                      )
-                      .map((o: any) => {
-                        const ganancia = calcGananciaOrden(o);
-                        return (
-                          <tr key={o.id}>
-                            <td style={{ ...s.td, color: "#f97316", fontWeight: 700 }}>{o.folio}</td>
-                            <td style={s.td}>{o.cliente}</td>
-                            <td style={{ ...s.td, color: "#94a3b8" }}>{o.vehiculo}</td>
-                            <td style={{ ...s.td, color: "#64748b" }}>{o.placa}</td>
-                            <td style={s.td}>{o.servicio}</td>
-                            <td style={{ ...s.td, color: "#94a3b8" }}>{o.mecanico}</td>
-                            <td style={{ ...s.td, color: "#22c55e", fontWeight: 700 }}>${(o.costo || 0).toLocaleString("es-AR")}</td>
-                            <td style={{ ...s.td, color: ganancia >= 0 ? "#fb923c" : "#ef4444", fontWeight: 700 }}>
-                              ${ganancia.toLocaleString("es-AR")}
-                            </td>
-                            <td style={s.td}><span style={s.badge(o.estado)}>{o.estado}</span></td>
-                            <td style={s.td}>
-                              {o.cobrado
-                                ? <span style={{ color: "#22c55e", fontWeight: 700, fontSize: 12 }}>✓ Cobrado</span>
-                                : o.estado === "completado"
-                                  ? <button style={{ ...s.btn("success"), padding: "4px 10px", fontSize: 11 }} onClick={() => marcarCobrado(o.id)}>Cobrar</button>
-                                  : <span style={{ color: "#334155", fontSize: 11 }}>—</span>
-                              }
-                            </td>
-                            <td style={s.td}>
-                              <select
-                                style={{ ...s.select, width: "auto", fontSize: 11, padding: "4px 6px" }}
-                                value={o.estado}
-                                onChange={e => cambiarEstado(o.id, e.target.value)}
-                              >
-                                <option value="pendiente">Pendiente</option>
-                                <option value="en proceso">En proceso</option>
-                                <option value="completado">Completado</option>
-                              </select>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ══════════════════ FINANZAS ══════════════════ */}
-        {tab === "Finanzas" && (
-          <div>
-            <div style={s.grid}>
-              <div style={s.cardAccent("#22c55e")}>
-                <div style={s.kpiLabel}>Total cobrado</div>
-                <div style={s.kpiVal("#22c55e")}>${totalIngresos.toLocaleString("es-AR")}</div>
-              </div>
-              <div style={s.cardAccent("#fb923c")}>
-                <div style={s.kpiLabel}>Ganancia real</div>
-                <div style={s.kpiVal("#fb923c")}>${totalGanancia.toLocaleString("es-AR")}</div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>cobrado − costo repuestos</div>
-              </div>
-              <div style={s.cardAccent("#ef4444")}>
-                <div style={s.kpiLabel}>Total gastos</div>
-                <div style={s.kpiVal("#ef4444")}>${totalGastos.toLocaleString("es-AR")}</div>
-              </div>
-              <div style={s.cardAccent("#f97316")}>
-                <div style={s.kpiLabel}>Utilidad neta</div>
-                <div style={s.kpiVal("#f97316")}>${utilidad.toLocaleString("es-AR")}</div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>ganancia − gastos</div>
-              </div>
-              <div style={s.cardAccent("#a78bfa")}>
-                <div style={s.kpiLabel}>Ticket promedio</div>
-                <div style={s.kpiVal("#a78bfa")}>${ticketPromedio.toLocaleString("es-AR")}</div>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div style={s.section}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div style={s.sectionTitle}>Gastos por categoría</div>
-                  <button style={s.btn("primary")} onClick={() => setModal("gasto")}>+ Gasto</button>
+              <div className="card">
+                <div className="card-title">Monotributo Cat. H</div>
+                <div className="row" style={{ marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, color: "#94a3b8" }}>{fmt(totalIngresos)}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: pctMonotributo > 80 ? "#ef4444" : "#64748b" }}>{pctMonotributo}%</span>
                 </div>
-                {Object.entries(
-                  gastos.reduce((acc: any, g: any) => {
-                    acc[g.categoria] = (acc[g.categoria] || 0) + g.monto;
-                    return acc;
-                  }, {})
-                ).map(([cat, total]: any) => {
-                  const pct = totalGastos > 0 ? Math.round((total / totalGastos) * 100) : 0;
-                  return (
-                    <div key={cat} style={{ marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                        <span style={{ textTransform: "capitalize" }}>{cat}</span>
-                        <span style={{ color: "#f97316" }}>${total.toLocaleString("es-AR")} ({pct}%)</span>
+                <div className="progress-wrap">
+                  <div className="progress-bar" style={{ width: `${pctMonotributo}%`, background: pctMonotributo > 80 ? "#ef4444" : "#f97316" }} />
+                </div>
+                <div style={{ fontSize: 10, color: "#475569", marginTop: 6 }}>Tope: {fmt(TOPE_MONOTRIBUTO)}</div>
+              </div>
+
+              {sinCobrar.length > 0 && (
+                <div className="card" style={{ borderColor: "#d97706" }}>
+                  <div className="card-title" style={{ color: "#f59e0b" }}>⏳ A cobrar ({sinCobrar.length})</div>
+                  {sinCobrar.map((o: any) => (
+                    <div key={o.id} className="cobro-item">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
+                        <div style={{ fontSize: 11, color: "#92400e" }}>{o.folio} · {o.servicio}</div>
+                        <div style={{ fontSize: 16, color: "#f97316", fontWeight: 900, marginTop: 4 }}>{fmt(o.costo)}</div>
                       </div>
-                      <div style={{ background: "#1e293b", borderRadius: 2, height: 6 }}>
-                        <div style={{ width: `${pct}%`, height: 6, background: "#f97316", borderRadius: 2 }} />
+                      <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Cobrado</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="card">
+                <div className="card-title">Órdenes activas</div>
+                {ordenes.filter(o => o.estado !== "completado").length === 0
+                  ? <div className="empty">Sin órdenes activas</div>
+                  : ordenes.filter(o => o.estado !== "completado").slice(0, 5).map((o: any) => (
+                    <div key={o.id} className="orden-item">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>{o.vehiculo} · {o.servicio}</div>
+                        <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316" }}>{fmt(o.costo)}</div>
+                    </div>
+                  ))
+                }
+              </div>
+
+              {stockBajo > 0 && (
+                <div className="card" style={{ borderColor: "#f97316" }}>
+                  <div className="card-title">⚠ Stock bajo</div>
+                  {inventario.filter(i => i.cantidad <= i.minimo).map((i: any) => (
+                    <div key={i.id} className="alert-item"><strong>{i.nombre}</strong> — {i.cantidad} {i.unidad} (mín. {i.minimo})</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ ÓRDENES ══ */}
+          {tab === "Órdenes" && (
+            <div>
+              <input className="form-input" placeholder="Buscar cliente, vehículo, folio..."
+                value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+              {ordenes
+                .filter(o =>
+                  o.cliente?.toLowerCase().includes(search.toLowerCase()) ||
+                  o.vehiculo?.toLowerCase().includes(search.toLowerCase()) ||
+                  o.folio?.toLowerCase().includes(search.toLowerCase())
+                )
+                .map((o: any) => {
+                  const ganancia = calcGananciaOrden(o);
+                  return (
+                    <div key={o.id} className="card" style={{ borderLeft: `3px solid ${estadoColor[o.estado] || "#334155"}` }}>
+                      <div className="row" style={{ marginBottom: 8 }}>
+                        <span style={{ color: "#f97316", fontWeight: 700, fontSize: 13 }}>{o.folio}</span>
+                        <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{o.cliente}</div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 2 }}>{o.vehiculo}{o.placa ? ` · ${o.placa}` : ""}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>{o.servicio}{o.mecanico ? ` · ${o.mecanico}` : ""}</div>
+                      <div className="row" style={{ marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>COBRADO</div>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: "#22c55e" }}>{fmt(o.costo)}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>GANANCIA</div>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: ganancia >= 0 ? "#fb923c" : "#ef4444" }}>{fmt(ganancia)}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <select className="select-inline" style={{ flex: 1 }} value={o.estado} onChange={e => cambiarEstado(o.id, e.target.value)}>
+                          <option value="pendiente">Pendiente</option>
+                          <option value="en proceso">En proceso</option>
+                          <option value="esperando repuesto">Esp. repuesto</option>
+                          <option value="completado">Completado</option>
+                        </select>
+                        {o.estado === "completado" && !o.cobrado && (
+                          <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Cobrar</button>
+                        )}
+                        {o.cobrado && <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 700 }}>✓ Cobrado</span>}
                       </div>
                     </div>
                   );
                 })}
-              </div>
-              <div style={s.section}>
-                <div style={s.sectionTitle}>Registro de gastos</div>
-                <table style={s.table}>
-                  <thead><tr>{["Concepto","Categoría","Monto","Fecha"].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {gastos.map((g: any) => (
-                      <tr key={g.id}>
-                        <td style={s.td}>{g.concepto}</td>
-                        <td style={{ ...s.td, color: "#94a3b8", textTransform: "capitalize" }}>{g.categoria}</td>
-                        <td style={{ ...s.td, color: "#ef4444", fontWeight: 700 }}>${(g.monto || 0).toLocaleString("es-AR")}</td>
-                        <td style={{ ...s.td, color: "#64748b" }}>{g.fecha}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {ordenes.length === 0 && <div className="empty">No hay órdenes todavía</div>}
+              <button className="btn-fab" onClick={() => { setForm({ fecha: new Date().toISOString().slice(0, 10) }); setModal("orden"); }}>+</button>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ══════════════════ CLIENTES ══════════════════ */}
-        {tab === "Clientes" && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-              <button style={s.btn("primary")} onClick={() => setModal("cliente")}>+ Nuevo Cliente</button>
+          {/* ══ FINANZAS ══ */}
+          {tab === "Finanzas" && (
+            <div>
+              <div className="kpi-grid">
+                <div className="kpi-card" style={{ "--accent": "#22c55e" } as any}>
+                  <div className="kpi-label">Total cobrado</div>
+                  <div className="kpi-val">{fmt(totalIngresos)}</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#fb923c" } as any}>
+                  <div className="kpi-label">Ganancia real</div>
+                  <div className="kpi-val">{fmt(totalGanancia)}</div>
+                  <div className="kpi-sub">− costo repuestos</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": "#ef4444" } as any}>
+                  <div className="kpi-label">Total gastos</div>
+                  <div className="kpi-val">{fmt(totalGastos)}</div>
+                </div>
+                <div className="kpi-card" style={{ "--accent": utilidad >= 0 ? "#f97316" : "#ef4444" } as any}>
+                  <div className="kpi-label">Utilidad neta</div>
+                  <div className="kpi-val">{fmt(utilidad)}</div>
+                </div>
+              </div>
+              <div className="card">
+                <div className="row" style={{ marginBottom: 12 }}>
+                  <div className="card-title" style={{ marginBottom: 0 }}>Gastos registrados</div>
+                  <button className="btn btn-primary btn-sm" onClick={() => { setForm({ fecha: new Date().toISOString().slice(0, 10) }); setModal("gasto"); }}>+ Gasto</button>
+                </div>
+                {gastos.length === 0
+                  ? <div className="empty">Sin gastos registrados</div>
+                  : gastos.map((g: any) => (
+                    <div key={g.id} className="orden-item">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{g.concepto}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", textTransform: "capitalize" }}>{g.categoria} · {g.fecha}</div>
+                      </div>
+                      <span style={{ color: "#ef4444", fontWeight: 900, fontSize: 15 }}>{fmt(g.monto)}</span>
+                    </div>
+                  ))
+                }
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
+          )}
+
+          {/* ══ CLIENTES ══ */}
+          {tab === "Clientes" && (
+            <div>
               {clientes.map((c: any) => (
-                <div key={c.id} style={s.section}>
-                  <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316", marginBottom: 4 }}>{c.nombre}</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 2 }}>📞 {c.telefono}</div>
-                  {c.email && <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>✉ {c.email}</div>}
-                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>VEHÍCULOS</div>
-                  {(c.vehiculos || []).map((v: string, i: number) => <div key={i} style={{ fontSize: 12, color: "#e2e8f0", marginBottom: 2 }}>• {v}</div>)}
-                  <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div key={c.id} className="card">
+                  <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316", marginBottom: 6 }}>{c.nombre}</div>
+                  <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 2 }}>📞 {c.telefono}</div>
+                  {c.email && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 8 }}>✉ {c.email}</div>}
+                  {(c.vehiculos || []).length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 10, color: "#64748b", letterSpacing: 2, marginBottom: 4 }}>VEHÍCULOS</div>
+                      {(c.vehiculos || []).map((v: string, idx: number) => (
+                        <div key={idx} style={{ fontSize: 12, color: "#e2e8f0", marginBottom: 2 }}>• {v}</div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 11, color: "#64748b" }}>VISITAS</span>
-                    <span style={{ fontSize: 20, fontWeight: 900, color: "#a78bfa" }}>{c.visitas || 0}</span>
+                    <span style={{ fontSize: 22, fontWeight: 900, color: "#a78bfa" }}>{c.visitas || 0}</span>
                   </div>
                 </div>
               ))}
+              {clientes.length === 0 && <div className="empty">Sin clientes todavía</div>}
+              <button className="btn-fab" onClick={() => setModal("cliente")}>+</button>
+            </div>
+          )}
+
+          {/* ══ INVENTARIO ══ */}
+          {tab === "Inventario" && (
+            <div>
+              {inventario.map((i: any) => {
+                const bajo = i.cantidad <= i.minimo;
+                return (
+                  <div key={i.id} className="card" style={{ borderLeft: `3px solid ${bajo ? "#ef4444" : "#22c55e"}` }}>
+                    <div className="row" style={{ marginBottom: 6 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>{i.nombre}</div>
+                      <span className="badge" style={{ background: bajo ? "#7f1d1d" : "#052e16", color: bajo ? "#f87171" : "#4ade80" }}>
+                        {bajo ? "⚠ bajo" : "✓ ok"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12, textTransform: "capitalize" }}>
+                      {i.categoria} · mín. {i.minimo} {i.unidad} · ${i.precio}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <button className="btn btn-danger" style={{ fontSize: 20, padding: "8px 20px" }} onClick={() => ajustarStock(i.id, -1)}>−</button>
+                      <span style={{ fontSize: 26, fontWeight: 900, color: bajo ? "#ef4444" : "#22c55e", flex: 1, textAlign: "center" }}>
+                        {i.cantidad} <span style={{ fontSize: 12, color: "#64748b" }}>{i.unidad}</span>
+                      </span>
+                      <button className="btn btn-primary" style={{ fontSize: 20, padding: "8px 20px" }} onClick={() => ajustarStock(i.id, +1)}>+</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {inventario.length === 0 && <div className="empty">Sin artículos en inventario</div>}
+            </div>
+          )}
+
+        </div>
+
+        {/* ── Nav inferior ── */}
+        <div className="bottom-nav">
+          {TABS.map(t => (
+            <button key={t.id} className={`nav-btn ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+              <span className="nav-icon">{t.icon}</span>
+              <span className="nav-label">{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ══ MODAL ORDEN ══ */}
+        {modal === "orden" && (
+          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+            <div className="modal-box">
+              <div className="modal-handle" />
+              <div className="card-title">Nueva Orden</div>
+              {inp("cliente", "Cliente")}
+              {inp("vehiculo", "Vehículo")}
+              {inp("placa", "Placa")}
+              {inp("servicio", "Servicio")}
+              {inp("mecanico", "Mecánico")}
+              {inp("costo", "Costo total ($)", "number")}
+              {inp("fecha", "Fecha", "date")}
+              <div className="form-group">
+                <label className="form-label">Estado</label>
+                <select className="form-select" value={form.estado || "pendiente"} onChange={e => setForm((p: any) => ({ ...p, estado: e.target.value }))}>
+                  <option value="pendiente">Pendiente</option>
+                  <option value="en proceso">En proceso</option>
+                  <option value="esperando repuesto">Esperando repuesto</option>
+                  <option value="completado">Completado</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                <button className="btn btn-primary btn-full" onClick={addOrden}>Guardar</button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ══════════════════ INVENTARIO ══════════════════ */}
-        {tab === "Inventario" && (
-          <div style={s.section}>
-            <div style={s.sectionTitle}>Inventario de Repuestos</div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={s.table}>
-                <thead><tr>{["Artículo","Categoría","Stock","Unidad","Precio","Mín.","Estado","Ajustar"].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {inventario.map((i: any) => {
-                    const bajo = i.cantidad <= i.minimo;
-                    return (
-                      <tr key={i.id}>
-                        <td style={{ ...s.td, fontWeight: 700 }}>{i.nombre}</td>
-                        <td style={{ ...s.td, color: "#94a3b8", textTransform: "capitalize" }}>{i.categoria}</td>
-                        <td style={{ ...s.td, color: bajo ? "#ef4444" : "#22c55e", fontWeight: 700 }}>{i.cantidad}</td>
-                        <td style={{ ...s.td, color: "#64748b" }}>{i.unidad}</td>
-                        <td style={{ ...s.td, color: "#f97316" }}>${i.precio}</td>
-                        <td style={{ ...s.td, color: "#64748b" }}>{i.minimo}</td>
-                        <td style={s.td}><span style={s.badge(bajo ? "pendiente" : "completado")}>{bajo ? "bajo" : "ok"}</span></td>
-                        <td style={s.td}>
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <button style={{ ...s.btn("danger"), padding: "4px 10px" }} onClick={() => ajustarStock(i.id, -1)}>−</button>
-                            <button style={{ ...s.btn("primary"), padding: "4px 10px" }} onClick={() => ajustarStock(i.id, +1)}>+</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        {/* ══ MODAL GASTO ══ */}
+        {modal === "gasto" && (
+          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+            <div className="modal-box">
+              <div className="modal-handle" />
+              <div className="card-title">Registrar Gasto</div>
+              {inp("concepto", "Concepto")}
+              {inp("monto", "Monto ($)", "number")}
+              <div className="form-group">
+                <label className="form-label">Categoría</label>
+                <select className="form-select" value={form.categoria || ""} onChange={e => setForm((p: any) => ({ ...p, categoria: e.target.value }))}>
+                  <option value="">Seleccionar...</option>
+                  {["insumos", "fijo", "servicios", "equipo", "otro"].map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {inp("fecha", "Fecha", "date")}
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                <button className="btn btn-primary btn-full" onClick={addGasto}>Guardar</button>
+              </div>
             </div>
           </div>
         )}
+
+        {/* ══ MODAL CLIENTE ══ */}
+        {modal === "cliente" && (
+          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+            <div className="modal-box">
+              <div className="modal-handle" />
+              <div className="card-title">Nuevo Cliente</div>
+              {inp("nombre", "Nombre")}
+              {inp("telefono", "Teléfono")}
+              {inp("email", "Email")}
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                <button className="btn btn-primary btn-full" onClick={addCliente}>Guardar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
-
-      {/* ══════════════════ MODALES ══════════════════ */}
-      {modal === "orden" && (
-        <div style={s.modalBg}><div style={s.modalBox}>
-          <div style={s.sectionTitle}>Nueva Orden de Trabajo</div>
-          {["cliente","vehiculo","placa","servicio","mecanico"].map(f => (
-            <div key={f} style={s.formGroup}>
-              <label style={s.label}>{f}</label>
-              <input style={s.input} value={form[f]||""} onChange={e => setForm((p: any) => ({...p,[f]:e.target.value}))} />
-            </div>
-          ))}
-          <div style={s.formGroup}><label style={s.label}>Costo ($)</label><input style={s.input} type="number" value={form.costo||""} onChange={e => setForm((p: any) => ({...p,costo:e.target.value}))} /></div>
-          <div style={s.formGroup}><label style={s.label}>Fecha</label><input style={s.input} type="date" value={form.fecha||""} onChange={e => setForm((p: any) => ({...p,fecha:e.target.value}))} /></div>
-          <div style={s.formGroup}><label style={s.label}>Estado</label>
-            <select style={s.select} value={form.estado||"pendiente"} onChange={e => setForm((p: any) => ({...p,estado:e.target.value}))}>
-              <option value="pendiente">Pendiente</option>
-              <option value="en proceso">En proceso</option>
-              <option value="completado">Completado</option>
-            </select>
-          </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-            <button style={s.btn()} onClick={()=>{setModal(null);setForm({})}}>Cancelar</button>
-            <button style={s.btn("primary")} onClick={addOrden}>Guardar</button>
-          </div>
-        </div></div>
-      )}
-
-      {modal === "gasto" && (
-        <div style={s.modalBg}><div style={s.modalBox}>
-          <div style={s.sectionTitle}>Registrar Gasto</div>
-          <div style={s.formGroup}><label style={s.label}>Concepto</label><input style={s.input} value={form.concepto||""} onChange={e => setForm((p: any) => ({...p,concepto:e.target.value}))} /></div>
-          <div style={s.formGroup}><label style={s.label}>Monto ($)</label><input style={s.input} type="number" value={form.monto||""} onChange={e => setForm((p: any) => ({...p,monto:e.target.value}))} /></div>
-          <div style={s.formGroup}><label style={s.label}>Categoría</label>
-            <select style={s.select} value={form.categoria||""} onChange={e => setForm((p: any) => ({...p,categoria:e.target.value}))}>
-              <option value="">Seleccionar...</option>
-              {["insumos","fijo","servicios","equipo","otro"].map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div style={s.formGroup}><label style={s.label}>Fecha</label><input style={s.input} type="date" value={form.fecha||""} onChange={e => setForm((p: any) => ({...p,fecha:e.target.value}))} /></div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-            <button style={s.btn()} onClick={()=>{setModal(null);setForm({})}}>Cancelar</button>
-            <button style={s.btn("primary")} onClick={addGasto}>Guardar</button>
-          </div>
-        </div></div>
-      )}
-
-      {modal === "cliente" && (
-        <div style={s.modalBg}><div style={s.modalBox}>
-          <div style={s.sectionTitle}>Nuevo Cliente</div>
-          {["nombre","telefono","email"].map(f => (
-            <div key={f} style={s.formGroup}>
-              <label style={s.label}>{f}</label>
-              <input style={s.input} value={form[f]||""} onChange={e => setForm((p: any) => ({...p,[f]:e.target.value}))} />
-            </div>
-          ))}
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-            <button style={s.btn()} onClick={()=>{setModal(null);setForm({})}}>Cancelar</button>
-            <button style={s.btn("primary")} onClick={addCliente}>Guardar</button>
-          </div>
-        </div></div>
-      )}
-    </div>
+    </>
   );
 }
