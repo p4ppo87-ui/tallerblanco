@@ -7,18 +7,13 @@ const supabase = createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNleWdrbnpscnVmdGZlemNqcGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjY3MDQsImV4cCI6MjA5MTAwMjcwNH0.vODo6mIsy2QY2f1Mh5GstMJfQ3U5YmPBxDmmzozorWQ"
 );
 
-const TOPE_MONOTRIBUTO = 70113407;
 const estadoColor: Record<string, string> = {
-  completado: "#22c55e",
-  "en proceso": "#f59e0b",
-  pendiente: "#94a3b8",
-  "esperando repuesto": "#f97316",
+  completado: "#22c55e", "en proceso": "#f59e0b",
+  pendiente: "#94a3b8", "esperando repuesto": "#f97316",
 };
 const estadoBg: Record<string, string> = {
-  completado: "#052e16",
-  "en proceso": "#431407",
-  pendiente: "#1e293b",
-  "esperando repuesto": "#431407",
+  completado: "#052e16", "en proceso": "#431407",
+  pendiente: "#1e293b", "esperando repuesto": "#431407",
 };
 
 function calcGananciaOrden(o: any): number {
@@ -31,250 +26,176 @@ function calcGananciaOrden(o: any): number {
   return Number(o.costo || 0) - costoRepuestos;
 }
 
+function cobradoTotal(o: any): number {
+  if (o.cobrado === true) return Number(o.costo || 0);
+  const pagos: any[] = o.pagos || [];
+  return pagos.reduce((s: number, p: any) => s + Number(p.monto || 0), 0);
+}
+
+function saldoPendiente(o: any): number {
+  return Math.max(0, Number(o.costo || 0) - cobradoTotal(o));
+}
+
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
-const GLOBAL_CSS = `
+const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { background: #0a0f1a; }
   body { overscroll-behavior: none; }
 
   .app {
-    min-height: 100vh;
-    min-height: 100dvh;
-    background: #0a0f1a;
-    color: #e2e8f0;
+    min-height: 100vh; min-height: 100dvh;
+    background: #0a0f1a; color: #e2e8f0;
     font-family: 'Courier New', monospace;
-    display: flex;
-    flex-direction: column;
-    max-width: 480px;
-    margin: 0 auto;
+    display: flex; flex-direction: column;
+    max-width: 480px; margin: 0 auto;
   }
 
+  /* PIN */
+  .pin-screen {
+    min-height: 100vh; min-height: 100dvh;
+    background: #0a0f1a; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 32px 24px;
+    font-family: 'Courier New', monospace;
+  }
+  .pin-logo { font-size: 22px; font-weight: 900; color: #f97316; letter-spacing: 3px; margin-bottom: 8px; }
+  .pin-sub { font-size: 11px; color: #64748b; letter-spacing: 2px; margin-bottom: 40px; }
+  .pin-dots { display: flex; gap: 16px; margin-bottom: 32px; }
+  .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #334155; background: transparent; transition: background 0.15s; }
+  .pin-dot.filled { background: #f97316; border-color: #f97316; }
+  .pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 280px; }
+  .pin-key {
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 10px;
+    color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 22px;
+    font-weight: 700; padding: 18px; cursor: pointer; text-align: center;
+    min-height: 64px; display: flex; align-items: center; justify-content: center;
+  }
+  .pin-key:active { background: #1e293b; }
+  .pin-key.delete { color: #f97316; }
+  .pin-error { color: #ef4444; font-size: 13px; margin-bottom: 16px; letter-spacing: 1px; }
+
+  /* Header */
   .header {
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    border-bottom: 2px solid #f97316;
-    padding: 12px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: sticky;
-    top: 0;
-    z-index: 50;
+    border-bottom: 2px solid #f97316; padding: 12px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 50;
   }
   .logo { font-size: 18px; font-weight: 900; letter-spacing: 2px; color: #f97316; }
-  .fecha { font-size: 10px; color: #64748b; letter-spacing: 1px; }
+  .lock-btn { background: transparent; border: none; color: #64748b; font-size: 18px; cursor: pointer; padding: 4px; }
 
-  .main {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    padding-bottom: 90px;
-  }
+  /* Main */
+  .main { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 90px; }
 
+  /* Nav inferior */
   .bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 480px;
-    background: #0f172a;
-    border-top: 2px solid #f97316;
-    display: flex;
-    z-index: 100;
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 480px; background: #0f172a;
+    border-top: 2px solid #f97316; display: flex; z-index: 100;
     padding-bottom: env(safe-area-inset-bottom);
   }
   .nav-btn {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 4px 8px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-family: 'Courier New', monospace;
-    gap: 3px;
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 10px 4px 8px;
+    background: transparent; border: none; cursor: pointer;
+    font-family: 'Courier New', monospace; gap: 3px;
   }
   .nav-btn.active { background: #1e293b; }
   .nav-icon { font-size: 20px; line-height: 1; }
   .nav-label { font-size: 9px; letter-spacing: 1px; color: #64748b; text-transform: uppercase; font-weight: 700; }
   .nav-btn.active .nav-label { color: #f97316; }
 
+  /* KPIs */
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-  .kpi-card {
-    background: #0f172a;
-    border-radius: 8px;
-    padding: 14px 12px;
-    border-left: 3px solid var(--accent);
-  }
+  .kpi-card { background: #0f172a; border-radius: 8px; padding: 14px 12px; border-left: 3px solid var(--accent); }
   .kpi-label { font-size: 9px; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
   .kpi-val { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; }
   .kpi-sub { font-size: 9px; color: #475569; margin-top: 4px; }
 
-  .card {
-    background: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .card-title {
-    font-size: 10px;
-    letter-spacing: 3px;
-    color: #f97316;
-    text-transform: uppercase;
-    font-weight: 700;
-    margin-bottom: 12px;
-  }
+  /* Cards */
+  .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .card-title { font-size: 10px; letter-spacing: 3px; color: #f97316; text-transform: uppercase; font-weight: 700; margin-bottom: 12px; }
 
-  .orden-item {
-    padding: 12px 0;
-    border-bottom: 1px solid #1e293b;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 8px;
-  }
+  /* Orden item */
+  .orden-item { padding: 12px 0; border-bottom: 1px solid #1e293b; }
   .orden-item:last-child { border-bottom: none; padding-bottom: 0; }
 
-  .badge {
-    display: inline-block;
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    margin-top: 4px;
-  }
+  /* Badge */
+  .badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 700; }
 
+  /* Botones */
   .btn {
-    border: none;
-    border-radius: 6px;
-    padding: 12px 20px;
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 1px;
-    cursor: pointer;
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    border: none; border-radius: 6px; padding: 12px 20px;
+    font-family: 'Courier New', monospace; font-weight: 700; font-size: 13px;
+    letter-spacing: 1px; cursor: pointer; min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
   .btn-primary { background: #f97316; color: #0a0f1a; }
   .btn-success { background: #166534; color: #4ade80; }
+  .btn-warning { background: #92400e; color: #fbbf24; }
   .btn-danger  { background: #7f1d1d; color: #f87171; }
   .btn-ghost   { background: #1e293b; color: #94a3b8; }
   .btn-sm { padding: 8px 14px; font-size: 11px; min-height: 36px; border-radius: 4px; }
   .btn-full { width: 100%; }
   .btn-fab {
-    position: fixed;
-    bottom: 80px;
-    right: calc(50% - 228px);
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: #f97316;
-    color: #0a0f1a;
-    border: none;
-    font-size: 28px;
-    font-weight: 900;
-    cursor: pointer;
+    position: fixed; bottom: 80px; right: 20px;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: #f97316; color: #0a0f1a; border: none;
+    font-size: 28px; font-weight: 900; cursor: pointer;
     box-shadow: 0 4px 20px rgba(249,115,22,0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 90;
+    display: flex; align-items: center; justify-content: center; z-index: 90;
   }
-  @media (max-width: 480px) {
-    .btn-fab { right: 20px; }
-  }
+  @media (min-width: 480px) { .btn-fab { right: calc(50% - 220px); } }
 
+  /* Formularios */
   .form-group { margin-bottom: 14px; }
   .form-label { font-size: 10px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px; }
   .form-input, .form-select {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #e2e8f0;
-    padding: 12px 14px;
-    border-radius: 6px;
-    width: 100%;
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    min-height: 44px;
+    background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+    padding: 12px 14px; border-radius: 6px; width: 100%;
+    font-family: 'Courier New', monospace; font-size: 14px; min-height: 44px;
   }
   .form-input:focus, .form-select:focus { outline: none; border-color: #f97316; }
 
+  /* Modal */
   .modal-bg {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.9);
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    z-index: 200;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+    display: flex; align-items: flex-end; justify-content: center; z-index: 200;
   }
   .modal-box {
-    background: #0f172a;
-    border: 1px solid #f97316;
-    border-radius: 16px 16px 0 0;
-    padding: 20px 20px 40px;
-    width: 100%;
-    max-width: 480px;
-    max-height: 90vh;
-    overflow-y: auto;
+    background: #0f172a; border: 1px solid #f97316;
+    border-radius: 16px 16px 0 0; padding: 20px 20px 40px;
+    width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto;
   }
-  .modal-handle {
-    width: 40px; height: 4px;
-    background: #334155; border-radius: 2px;
-    margin: 0 auto 16px;
-  }
+  .modal-handle { width: 40px; height: 4px; background: #334155; border-radius: 2px; margin: 0 auto 16px; }
 
+  /* Progreso */
   .progress-wrap { background: #1e293b; border-radius: 3px; height: 8px; overflow: hidden; }
   .progress-bar  { height: 100%; border-radius: 3px; }
 
-  .alert-item {
-    background: #431407;
-    border: 1px solid #f97316;
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    font-size: 13px;
-  }
-
-  .cobro-item {
-    background: #1c1208;
-    border: 1px solid #d97706;
-    border-radius: 8px;
-    padding: 12px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-  }
+  /* Alerts */
+  .alert-item { background: #431407; border: 1px solid #f97316; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
+  .cobro-item { background: #1c1208; border: 1px solid #d97706; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
 
   .select-inline {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #e2e8f0;
-    padding: 6px 8px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    min-height: 36px;
+    background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+    padding: 6px 8px; border-radius: 4px; font-family: 'Courier New', monospace;
+    font-size: 11px; min-height: 36px;
   }
 
   .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
   .empty { color: #475569; font-size: 13px; text-align: center; padding: 32px 0; }
-  .loading {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: #0a0f1a; color: #f97316; font-family: 'Courier New', monospace;
-    font-size: 14px; letter-spacing: 3px;
-  }
+  .loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0f1a; color: #f97316; font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 3px; }
+
+  /* Pago parcial */
+  .pago-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #1e293b; font-size: 12px; }
+  .pago-row:last-child { border-bottom: none; }
+
+  /* Cliente vehiculo tag */
+  .vehiculo-tag { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 4px 10px; font-size: 12px; margin: 3px; color: #e2e8f0; }
+
+  /* Separador */
+  .sep { border: none; border-top: 1px solid #1e293b; margin: 12px 0; }
 `;
 
 const TABS = [
@@ -285,7 +206,16 @@ const TABS = [
   { id: "Inventario", icon: "📦", label: "Stock" },
 ];
 
+const PIN_LENGTH = 4;
+
 export default function TallerBlanco() {
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const [autenticado, setAutenticado] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pinGuardado, setPinGuardado] = useState<string | null>(null);
+
+  // ── App state ─────────────────────────────────────────────────────────────
   const [tab, setTab] = useState("Inicio");
   const [ordenes, setOrdenes] = useState<any[]>([]);
   const [gastos, setGastos] = useState<any[]>([]);
@@ -295,9 +225,51 @@ export default function TallerBlanco() {
   const [form, setForm] = useState<any>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [pagoMonto, setPagoMonto] = useState("");
+  const [pagoOrdenId, setPagoOrdenId] = useState<number | null>(null);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    cargarPin();
+    fetchAll();
+  }, []);
 
+  async function cargarPin() {
+    const { data } = await supabase.from("config").select("valor").eq("clave", "pin").single();
+    if (data?.valor) setPinGuardado(data.valor);
+    else setPinGuardado(""); // sin pin → acceso libre
+  }
+
+  // ── PIN logic ─────────────────────────────────────────────────────────────
+  function presionarTecla(k: string) {
+    if (pinInput.length >= PIN_LENGTH) return;
+    const nuevo = pinInput + k;
+    setPinInput(nuevo);
+    setPinError("");
+    if (nuevo.length === PIN_LENGTH) verificarPin(nuevo);
+  }
+
+  function borrarTecla() {
+    setPinInput(prev => prev.slice(0, -1));
+    setPinError("");
+  }
+
+  async function verificarPin(intento: string) {
+    // Si no hay pin configurado, entrar directo
+    if (pinGuardado === "") { setAutenticado(true); return; }
+    if (intento === pinGuardado) {
+      setAutenticado(true);
+    } else {
+      setTimeout(() => { setPinInput(""); setPinError("PIN incorrecto"); }, 300);
+    }
+  }
+
+  async function guardarNuevoPin(nuevoPin: string) {
+    await supabase.from("config").upsert({ clave: "pin", valor: nuevoPin });
+    setPinGuardado(nuevoPin);
+  }
+
+  // ── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchAll() {
     setLoading(true);
     const [o, g, c, i] = await Promise.all([
@@ -313,44 +285,49 @@ export default function TallerBlanco() {
     setLoading(false);
   }
 
-  const cobradas       = ordenes.filter(o => o.estado === "completado" && o.cobrado === true);
-  const sinCobrar      = ordenes.filter(o => o.estado === "completado" && !o.cobrado);
-  const totalIngresos  = cobradas.reduce((s, o) => s + Number(o.costo || 0), 0);
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const cobradas       = ordenes.filter(o => saldoPendiente(o) === 0 && (o.cobrado || (o.pagos || []).length > 0));
+  const sinCobrar      = ordenes.filter(o => o.estado === "completado" && saldoPendiente(o) > 0);
+  const totalIngresos  = ordenes.reduce((s, o) => s + cobradoTotal(o), 0);
   const totalGanancia  = cobradas.reduce((s, o) => s + calcGananciaOrden(o), 0);
   const totalGastos    = gastos.reduce((s, g) => s + Number(g.monto || 0), 0);
   const utilidad       = totalGanancia - totalGastos;
   const ordenesActivas = ordenes.filter(o => o.estado !== "completado").length;
-  const aCobrar        = sinCobrar.reduce((s, o) => s + Number(o.costo || 0), 0);
-  const completadasCount = cobradas.length;
-  const ticketPromedio = completadasCount ? Math.round(totalIngresos / completadasCount) : 0;
-  const pctMonotributo = Math.min(100, Math.round((totalIngresos / TOPE_MONOTRIBUTO) * 100));
+  const aCobrar        = sinCobrar.reduce((s, o) => s + saldoPendiente(o), 0);
+  const ticketPromedio = cobradas.length ? Math.round(totalIngresos / cobradas.length) : 0;
   const stockBajo      = inventario.filter(i => i.cantidad <= i.minimo).length;
 
-  async function addOrden() {
-    const folio = `OT-${String(ordenes.length + 1).padStart(3, "0")}`;
-    const nuevo = {
-      folio, cliente: form.cliente, vehiculo: form.vehiculo, placa: form.placa,
-      servicio: form.servicio, mecanico: form.mecanico,
-      costo: Number(form.costo) || 0, estado: form.estado || "pendiente",
-      fecha: form.fecha, cobrado: false,
+  // ── CRUD Órdenes ──────────────────────────────────────────────────────────
+  async function guardarOrden() {
+    const datos = {
+      cliente:  form.cliente,
+      vehiculo: form.vehiculo,
+      placa:    form.placa,
+      servicio: form.servicio,
+      mecanico: form.mecanico,
+      costo:    Number(form.costo) || 0,
+      estado:   form.estado || "pendiente",
+      fecha:    form.fecha,
     };
-    const { data, error } = await supabase.from("ordenes").insert([nuevo]).select();
-    if (data && !error) setOrdenes(prev => [data[0], ...prev]);
-    setModal(null); setForm({});
+    if (editId) {
+      const { data, error } = await supabase.from("ordenes").update(datos).eq("id", editId).select();
+      if (data && !error) setOrdenes(prev => prev.map(o => o.id === editId ? { ...o, ...data[0] } : o));
+    } else {
+      const folio = `OT-${String(ordenes.length + 1).padStart(3, "0")}`;
+      const { data, error } = await supabase.from("ordenes").insert([{ ...datos, folio, cobrado: false, pagos: [] }]).select();
+      if (data && !error) setOrdenes(prev => [data[0], ...prev]);
+    }
+    closeModal();
   }
 
-  async function addGasto() {
-    const nuevo = { concepto: form.concepto, monto: Number(form.monto) || 0, categoria: form.categoria, fecha: form.fecha };
-    const { data, error } = await supabase.from("gastos").insert([nuevo]).select();
-    if (data && !error) setGastos(prev => [data[0], ...prev]);
-    setModal(null); setForm({});
-  }
-
-  async function addCliente() {
-    const nuevo = { nombre: form.nombre, telefono: form.telefono, email: form.email, vehiculos: [], visitas: 0 };
-    const { data, error } = await supabase.from("clientes").insert([nuevo]).select();
-    if (data && !error) setClientes(prev => [data[0], ...prev]);
-    setModal(null); setForm({});
+  function abrirEditarOrden(o: any) {
+    setEditId(o.id);
+    setForm({
+      cliente: o.cliente, vehiculo: o.vehiculo, placa: o.placa,
+      servicio: o.servicio, mecanico: o.mecanico,
+      costo: o.costo, estado: o.estado, fecha: o.fecha,
+    });
+    setModal("orden");
   }
 
   async function cambiarEstado(id: number, estado: string) {
@@ -363,6 +340,60 @@ export default function TallerBlanco() {
     if (!error) setOrdenes(prev => prev.map(o => o.id === id ? { ...o, cobrado: true } : o));
   }
 
+  async function registrarPago(id: number) {
+    const monto = Number(pagoMonto);
+    if (!monto || monto <= 0) return;
+    const orden = ordenes.find(o => o.id === id);
+    if (!orden) return;
+    const pagosActuales: any[] = orden.pagos || [];
+    const nuevosPagos = [...pagosActuales, { monto, fecha: new Date().toISOString().slice(0, 10) }];
+    const totalPagado = nuevosPagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
+    const cobrado = totalPagado >= Number(orden.costo);
+    const { error } = await supabase.from("ordenes").update({ pagos: nuevosPagos, cobrado }).eq("id", id);
+    if (!error) setOrdenes(prev => prev.map(o => o.id === id ? { ...o, pagos: nuevosPagos, cobrado } : o));
+    setPagoMonto("");
+    setPagoOrdenId(null);
+    setModal(null);
+  }
+
+  // ── CRUD Gastos ───────────────────────────────────────────────────────────
+  async function addGasto() {
+    const nuevo = { concepto: form.concepto, monto: Number(form.monto) || 0, categoria: form.categoria, fecha: form.fecha };
+    const { data, error } = await supabase.from("gastos").insert([nuevo]).select();
+    if (data && !error) setGastos(prev => [data[0], ...prev]);
+    closeModal();
+  }
+
+  // ── CRUD Clientes ─────────────────────────────────────────────────────────
+  async function guardarCliente() {
+    const vehiculosArr = (form.vehiculos_txt || "")
+      .split(",").map((v: string) => v.trim()).filter(Boolean);
+    const datos = {
+      nombre: form.nombre, telefono: form.telefono,
+      email: form.email, cuit: form.cuit,
+      vehiculos: vehiculosArr,
+    };
+    if (editId) {
+      const { data, error } = await supabase.from("clientes").update(datos).eq("id", editId).select();
+      if (data && !error) setClientes(prev => prev.map(c => c.id === editId ? { ...c, ...data[0] } : c));
+    } else {
+      const { data, error } = await supabase.from("clientes").insert([{ ...datos, visitas: 0 }]).select();
+      if (data && !error) setClientes(prev => [data[0], ...prev]);
+    }
+    closeModal();
+  }
+
+  function abrirEditarCliente(c: any) {
+    setEditId(c.id);
+    setForm({
+      nombre: c.nombre, telefono: c.telefono, email: c.email,
+      cuit: c.cuit || "",
+      vehiculos_txt: (c.vehiculos || []).join(", "),
+    });
+    setModal("cliente");
+  }
+
+  // ── Stock ─────────────────────────────────────────────────────────────────
   async function ajustarStock(id: number, delta: number) {
     const item = inventario.find(i => i.id === id);
     if (!item) return;
@@ -371,26 +402,64 @@ export default function TallerBlanco() {
     setInventario(prev => prev.map(i => i.id === id ? { ...i, cantidad: nueva } : i));
   }
 
-  if (loading) return <div className="loading">CARGANDO...</div>;
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function closeModal() { setModal(null); setForm({}); setEditId(null); setPagoMonto(""); setPagoOrdenId(null); }
 
-  const inp = (field: string, label: string, type = "text") => (
+  const inp = (field: string, label: string, type = "text", placeholder = "") => (
     <div className="form-group" key={field}>
       <label className="form-label">{label}</label>
-      <input className="form-input" type={type} inputMode={type === "number" ? "numeric" : undefined}
-        value={form[field] || ""} onChange={e => setForm((p: any) => ({ ...p, [field]: e.target.value }))} />
+      <input className="form-input" type={type}
+        inputMode={type === "number" ? "numeric" : undefined}
+        placeholder={placeholder}
+        value={form[field] || ""}
+        onChange={e => setForm((p: any) => ({ ...p, [field]: e.target.value }))} />
     </div>
   );
 
-  const closeModal = () => { setModal(null); setForm({}); };
+  // ── PIN screen ────────────────────────────────────────────────────────────
+  if (loading) return <div className="loading">CARGANDO...</div>;
+
+  if (!autenticado && pinGuardado !== "") {
+    return (
+      <>
+        <style>{CSS}</style>
+        <div className="pin-screen">
+          <div className="pin-logo">🔩 TALLER BLANCO</div>
+          <div className="pin-sub">INGRESÁ TU PIN</div>
+          <div className="pin-dots">
+            {Array.from({ length: PIN_LENGTH }).map((_, i) => (
+              <div key={i} className={`pin-dot ${i < pinInput.length ? "filled" : ""}`} />
+            ))}
+          </div>
+          {pinError && <div className="pin-error">{pinError}</div>}
+          <div className="pin-pad">
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, idx) => (
+              <button key={idx} className={`pin-key ${k === "⌫" ? "delete" : ""}`}
+                style={{ visibility: k === "" ? "hidden" : "visible" }}
+                onClick={() => k === "⌫" ? borrarTecla() : k !== "" ? presionarTecla(k) : null}>
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      <style>{GLOBAL_CSS}</style>
+      <style>{CSS}</style>
       <div className="app">
 
+        {/* Header */}
         <div className="header">
           <div className="logo">🔩 TALLER BLANCO</div>
-          <div className="fecha">{new Date().toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: "#64748b" }}>
+              {new Date().toLocaleDateString("es-AR", { day: "numeric", month: "short" }).toUpperCase()}
+            </span>
+            <button className="lock-btn" onClick={() => setAutenticado(false)} title="Bloquear">🔒</button>
+          </div>
         </div>
 
         <div className="main">
@@ -427,51 +496,52 @@ export default function TallerBlanco() {
                 </div>
               </div>
 
-              <div className="card">
-                <div className="card-title">Monotributo Cat. H</div>
-                <div className="row" style={{ marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, color: "#94a3b8" }}>{fmt(totalIngresos)}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: pctMonotributo > 80 ? "#ef4444" : "#64748b" }}>{pctMonotributo}%</span>
-                </div>
-                <div className="progress-wrap">
-                  <div className="progress-bar" style={{ width: `${pctMonotributo}%`, background: pctMonotributo > 80 ? "#ef4444" : "#f97316" }} />
-                </div>
-                <div style={{ fontSize: 10, color: "#475569", marginTop: 6 }}>Tope: {fmt(TOPE_MONOTRIBUTO)}</div>
-              </div>
-
+              {/* Pendientes de cobro */}
               {sinCobrar.length > 0 && (
                 <div className="card" style={{ borderColor: "#d97706" }}>
                   <div className="card-title" style={{ color: "#f59e0b" }}>⏳ A cobrar ({sinCobrar.length})</div>
-                  {sinCobrar.map((o: any) => (
-                    <div key={o.id} className="cobro-item">
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
-                        <div style={{ fontSize: 11, color: "#92400e" }}>{o.folio} · {o.servicio}</div>
-                        <div style={{ fontSize: 16, color: "#f97316", fontWeight: 900, marginTop: 4 }}>{fmt(o.costo)}</div>
+                  {sinCobrar.map((o: any) => {
+                    const saldo = saldoPendiente(o);
+                    const parcial = cobradoTotal(o) > 0 && saldo > 0;
+                    return (
+                      <div key={o.id} className="cobro-item">
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
+                          <div style={{ fontSize: 11, color: "#92400e" }}>{o.folio} · {o.servicio}</div>
+                          {parcial && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Pagado: {fmt(cobradoTotal(o))}</div>}
+                          <div style={{ fontSize: 16, color: "#f97316", fontWeight: 900, marginTop: 4 }}>Saldo: {fmt(saldo)}</div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Todo</button>
+                          <button className="btn btn-warning btn-sm" onClick={() => { setPagoOrdenId(o.id); setModal("pago"); }}>$ Parcial</button>
+                        </div>
                       </div>
-                      <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Cobrado</button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
+              {/* Órdenes activas */}
               <div className="card">
                 <div className="card-title">Órdenes activas</div>
                 {ordenes.filter(o => o.estado !== "completado").length === 0
                   ? <div className="empty">Sin órdenes activas</div>
                   : ordenes.filter(o => o.estado !== "completado").slice(0, 5).map((o: any) => (
                     <div key={o.id} className="orden-item">
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
-                        <div style={{ fontSize: 11, color: "#64748b" }}>{o.vehiculo} · {o.servicio}</div>
-                        <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>{o.vehiculo} · {o.servicio}</div>
+                          <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316" }}>{fmt(o.costo)}</div>
                       </div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316" }}>{fmt(o.costo)}</div>
                     </div>
                   ))
                 }
               </div>
 
+              {/* Stock bajo */}
               {stockBajo > 0 && (
                 <div className="card" style={{ borderColor: "#f97316" }}>
                   <div className="card-title">⚠ Stock bajo</div>
@@ -480,6 +550,12 @@ export default function TallerBlanco() {
                   ))}
                 </div>
               )}
+
+              {/* Cambiar PIN */}
+              <div className="card" style={{ borderColor: "#1e293b" }}>
+                <div className="card-title">⚙ Configuración</div>
+                <button className="btn btn-ghost btn-full" onClick={() => setModal("pin")}>🔑 Cambiar PIN</button>
+              </div>
             </div>
           )}
 
@@ -496,18 +572,24 @@ export default function TallerBlanco() {
                 )
                 .map((o: any) => {
                   const ganancia = calcGananciaOrden(o);
+                  const saldo = saldoPendiente(o);
+                  const pagadoParcial = cobradoTotal(o) > 0 && saldo > 0;
                   return (
                     <div key={o.id} className="card" style={{ borderLeft: `3px solid ${estadoColor[o.estado] || "#334155"}` }}>
                       <div className="row" style={{ marginBottom: 8 }}>
                         <span style={{ color: "#f97316", fontWeight: 700, fontSize: 13 }}>{o.folio}</span>
-                        <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                          <button className="btn btn-ghost btn-sm" style={{ padding: "4px 10px" }} onClick={() => abrirEditarOrden(o)}>✏</button>
+                        </div>
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{o.cliente}</div>
                       <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 2 }}>{o.vehiculo}{o.placa ? ` · ${o.placa}` : ""}</div>
                       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>{o.servicio}{o.mecanico ? ` · ${o.mecanico}` : ""}</div>
-                      <div className="row" style={{ marginBottom: 10 }}>
+
+                      <div className="row" style={{ marginBottom: 8 }}>
                         <div>
-                          <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>COBRADO</div>
+                          <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>TOTAL</div>
                           <div style={{ fontSize: 20, fontWeight: 900, color: "#22c55e" }}>{fmt(o.costo)}</div>
                         </div>
                         <div style={{ textAlign: "right" }}>
@@ -515,23 +597,47 @@ export default function TallerBlanco() {
                           <div style={{ fontSize: 20, fontWeight: 900, color: ganancia >= 0 ? "#fb923c" : "#ef4444" }}>{fmt(ganancia)}</div>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <select className="select-inline" style={{ flex: 1 }} value={o.estado} onChange={e => cambiarEstado(o.id, e.target.value)}>
+
+                      {/* Pagos parciales */}
+                      {(o.pagos || []).length > 0 && (
+                        <div style={{ marginBottom: 10, background: "#0a0f1a", borderRadius: 6, padding: "8px 10px" }}>
+                          {(o.pagos || []).map((p: any, idx: number) => (
+                            <div key={idx} className="pago-row">
+                              <span style={{ color: "#94a3b8" }}>Pago {idx + 1} · {p.fecha}</span>
+                              <span style={{ color: "#4ade80", fontWeight: 700 }}>{fmt(p.monto)}</span>
+                            </div>
+                          ))}
+                          {pagadoParcial && (
+                            <div className="pago-row" style={{ marginTop: 4 }}>
+                              <span style={{ color: "#f59e0b", fontWeight: 700 }}>Saldo pendiente</span>
+                              <span style={{ color: "#f59e0b", fontWeight: 700 }}>{fmt(saldo)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <select className="select-inline" style={{ flex: 1, minWidth: 120 }} value={o.estado} onChange={e => cambiarEstado(o.id, e.target.value)}>
                           <option value="pendiente">Pendiente</option>
                           <option value="en proceso">En proceso</option>
                           <option value="esperando repuesto">Esp. repuesto</option>
                           <option value="completado">Completado</option>
                         </select>
-                        {o.estado === "completado" && !o.cobrado && (
-                          <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Cobrar</button>
+                        {o.estado === "completado" && saldo > 0 && (
+                          <>
+                            <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Todo</button>
+                            <button className="btn btn-warning btn-sm" onClick={() => { setPagoOrdenId(o.id); setModal("pago"); }}>$ Parcial</button>
+                          </>
                         )}
-                        {o.cobrado && <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 700 }}>✓ Cobrado</span>}
+                        {saldo === 0 && (o.cobrado || (o.pagos || []).length > 0) && (
+                          <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 700 }}>✓ Cobrado</span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               {ordenes.length === 0 && <div className="empty">No hay órdenes todavía</div>}
-              <button className="btn-fab" onClick={() => { setForm({ fecha: new Date().toISOString().slice(0, 10) }); setModal("orden"); }}>+</button>
+              <button className="btn-fab" onClick={() => { setEditId(null); setForm({ fecha: new Date().toISOString().slice(0, 10) }); setModal("orden"); }}>+</button>
             </div>
           )}
 
@@ -566,11 +672,13 @@ export default function TallerBlanco() {
                   ? <div className="empty">Sin gastos registrados</div>
                   : gastos.map((g: any) => (
                     <div key={g.id} className="orden-item">
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700 }}>{g.concepto}</div>
-                        <div style={{ fontSize: 11, color: "#64748b", textTransform: "capitalize" }}>{g.categoria} · {g.fecha}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{g.concepto}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", textTransform: "capitalize" }}>{g.categoria} · {g.fecha}</div>
+                        </div>
+                        <span style={{ color: "#ef4444", fontWeight: 900, fontSize: 15 }}>{fmt(g.monto)}</span>
                       </div>
-                      <span style={{ color: "#ef4444", fontWeight: 900, fontSize: 15 }}>{fmt(g.monto)}</span>
                     </div>
                   ))
                 }
@@ -583,17 +691,25 @@ export default function TallerBlanco() {
             <div>
               {clientes.map((c: any) => (
                 <div key={c.id} className="card">
-                  <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316", marginBottom: 6 }}>{c.nombre}</div>
+                  <div className="row" style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316" }}>{c.nombre}</div>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "4px 10px" }} onClick={() => abrirEditarCliente(c)}>✏ Editar</button>
+                  </div>
                   <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 2 }}>📞 {c.telefono}</div>
-                  {c.email && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 8 }}>✉ {c.email}</div>}
+                  {c.email && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 2 }}>✉ {c.email}</div>}
+                  {c.cuit && <div style={{ fontSize: 13, color: "#64748b", marginBottom: 2 }}>🪪 {c.cuit}</div>}
+
                   {(c.vehiculos || []).length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 10, color: "#64748b", letterSpacing: 2, marginBottom: 4 }}>VEHÍCULOS</div>
-                      {(c.vehiculos || []).map((v: string, idx: number) => (
-                        <div key={idx} style={{ fontSize: 12, color: "#e2e8f0", marginBottom: 2 }}>• {v}</div>
-                      ))}
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 9, color: "#64748b", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Vehículos</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {(c.vehiculos || []).map((v: string, idx: number) => (
+                          <span key={idx} className="vehiculo-tag">{v}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
+
                   <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 11, color: "#64748b" }}>VISITAS</span>
                     <span style={{ fontSize: 22, fontWeight: 900, color: "#a78bfa" }}>{c.visitas || 0}</span>
@@ -601,7 +717,7 @@ export default function TallerBlanco() {
                 </div>
               ))}
               {clientes.length === 0 && <div className="empty">Sin clientes todavía</div>}
-              <button className="btn-fab" onClick={() => setModal("cliente")}>+</button>
+              <button className="btn-fab" onClick={() => { setEditId(null); setForm({}); setModal("cliente"); }}>+</button>
             </div>
           )}
 
@@ -637,7 +753,7 @@ export default function TallerBlanco() {
 
         </div>
 
-        {/* ── Nav inferior ── */}
+        {/* Nav inferior */}
         <div className="bottom-nav">
           {TABS.map(t => (
             <button key={t.id} className={`nav-btn ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
@@ -647,12 +763,12 @@ export default function TallerBlanco() {
           ))}
         </div>
 
-        {/* ══ MODAL ORDEN ══ */}
+        {/* ══ MODAL ORDEN (nueva / editar) ══ */}
         {modal === "orden" && (
           <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <div className="modal-box">
               <div className="modal-handle" />
-              <div className="card-title">Nueva Orden</div>
+              <div className="card-title">{editId ? "Editar Orden" : "Nueva Orden"}</div>
               {inp("cliente", "Cliente")}
               {inp("vehiculo", "Vehículo")}
               {inp("placa", "Placa")}
@@ -671,8 +787,53 @@ export default function TallerBlanco() {
               </div>
               <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                 <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
-                <button className="btn btn-primary btn-full" onClick={addOrden}>Guardar</button>
+                <button className="btn btn-primary btn-full" onClick={guardarOrden}>{editId ? "Guardar cambios" : "Crear orden"}</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ MODAL PAGO PARCIAL ══ */}
+        {modal === "pago" && pagoOrdenId && (
+          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+            <div className="modal-box">
+              <div className="modal-handle" />
+              <div className="card-title">Registrar Pago Parcial</div>
+              {(() => {
+                const o = ordenes.find(x => x.id === pagoOrdenId);
+                if (!o) return null;
+                const saldo = saldoPendiente(o);
+                return (
+                  <>
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{o.cliente} · {o.folio}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                        <span style={{ color: "#64748b" }}>Total orden:</span>
+                        <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{fmt(o.costo)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                        <span style={{ color: "#64748b" }}>Ya pagado:</span>
+                        <span style={{ color: "#4ade80", fontWeight: 700 }}>{fmt(cobradoTotal(o))}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, marginTop: 4 }}>
+                        <span style={{ color: "#f59e0b", fontWeight: 700 }}>Saldo:</span>
+                        <span style={{ color: "#f59e0b", fontWeight: 700 }}>{fmt(saldo)}</span>
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Monto del pago ($)</label>
+                      <input className="form-input" type="number" inputMode="numeric"
+                        placeholder={`Máx. ${fmt(saldo)}`}
+                        value={pagoMonto}
+                        onChange={e => setPagoMonto(e.target.value)} />
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                      <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                      <button className="btn btn-success btn-full" onClick={() => registrarPago(pagoOrdenId)}>Registrar pago</button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -701,18 +862,60 @@ export default function TallerBlanco() {
           </div>
         )}
 
-        {/* ══ MODAL CLIENTE ══ */}
+        {/* ══ MODAL CLIENTE (nuevo / editar) ══ */}
         {modal === "cliente" && (
           <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <div className="modal-box">
               <div className="modal-handle" />
-              <div className="card-title">Nuevo Cliente</div>
+              <div className="card-title">{editId ? "Editar Cliente" : "Nuevo Cliente"}</div>
               {inp("nombre", "Nombre")}
               {inp("telefono", "Teléfono")}
               {inp("email", "Email")}
+              {inp("cuit", "CUIT / DNI")}
+              <div className="form-group">
+                <label className="form-label">Vehículos (separados por coma)</label>
+                <input className="form-input" placeholder="Toyota Hilux, Ford Ranger"
+                  value={form.vehiculos_txt || ""}
+                  onChange={e => setForm((p: any) => ({ ...p, vehiculos_txt: e.target.value }))} />
+              </div>
               <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                 <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
-                <button className="btn btn-primary btn-full" onClick={addCliente}>Guardar</button>
+                <button className="btn btn-primary btn-full" onClick={guardarCliente}>{editId ? "Guardar cambios" : "Crear cliente"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ MODAL PIN ══ */}
+        {modal === "pin" && (
+          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+            <div className="modal-box">
+              <div className="modal-handle" />
+              <div className="card-title">🔑 Cambiar PIN</div>
+              <div className="form-group">
+                <label className="form-label">Nuevo PIN (4 dígitos)</label>
+                <input className="form-input" type="number" inputMode="numeric"
+                  maxLength={4} placeholder="Ej: 1234"
+                  value={form.nuevo_pin || ""}
+                  onChange={e => setForm((p: any) => ({ ...p, nuevo_pin: e.target.value.slice(0, 4) }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Confirmar PIN</label>
+                <input className="form-input" type="number" inputMode="numeric"
+                  maxLength={4} placeholder="Repetí el PIN"
+                  value={form.confirm_pin || ""}
+                  onChange={e => setForm((p: any) => ({ ...p, confirm_pin: e.target.value.slice(0, 4) }))} />
+              </div>
+              {form.nuevo_pin && form.confirm_pin && form.nuevo_pin !== form.confirm_pin && (
+                <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 12 }}>Los PINs no coinciden</div>
+              )}
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                <button className="btn btn-primary btn-full"
+                  disabled={!form.nuevo_pin || form.nuevo_pin.length !== 4 || form.nuevo_pin !== form.confirm_pin}
+                  onClick={async () => { await guardarNuevoPin(form.nuevo_pin); closeModal(); }}>
+                  Guardar PIN
+                </button>
               </div>
             </div>
           </div>
