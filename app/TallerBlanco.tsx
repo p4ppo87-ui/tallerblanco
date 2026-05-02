@@ -7,6 +7,8 @@ const supabase = createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNleWdrbnpscnVmdGZlemNqcGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MjY3MDQsImV4cCI6MjA5MTAwMjcwNH0.vODo6mIsy2QY2f1Mh5GstMJfQ3U5YmPBxDmmzozorWQ"
 );
 
+const MARGEN = 1.30; // precio de venta = costo * 1.30  →  costo = venta / 1.30
+
 const estadoColor: Record<string, string> = {
   completado: "#22c55e", "en proceso": "#f59e0b",
   pendiente: "#94a3b8", "esperando repuesto": "#f97316",
@@ -16,22 +18,30 @@ const estadoBg: Record<string, string> = {
   pendiente: "#1e293b", "esperando repuesto": "#431407",
 };
 
+// ── Repuesto: { nombre, precioVenta, cantidad }
+// costo = precioVenta / MARGEN
+function costoRepuesto(r: any) { return Number(r.precioVenta || 0) / MARGEN; }
+function gananciaRepuesto(r: any) { return Number(r.precioVenta || 0) - costoRepuesto(r); }
+
 function calcGananciaOrden(o: any): number {
-  const items: any[] = o.repuestos || o.items || [];
-  const costoRepuestos = items.reduce((s: number, item: any) => {
-    const costo = Number(item.costo_compra ?? item.costoCompra ?? item.costo ?? 0);
-    const cant = Number(item.cantidad ?? 1);
-    return s + costo * cant;
-  }, 0);
-  return Number(o.costo || 0) - costoRepuestos;
+  const repuestos: any[] = o.repuestos || [];
+  const gananciaRep = repuestos.reduce((s: number, r: any) =>
+    s + gananciaRepuesto(r) * Number(r.cantidad || 1), 0);
+  const totalRep = repuestos.reduce((s: number, r: any) =>
+    s + Number(r.precioVenta || 0) * Number(r.cantidad || 1), 0);
+  const manoObra = Math.max(0, Number(o.costo || 0) - totalRep);
+  return manoObra + gananciaRep;
+}
+
+function costoTotalRepuestos(o: any): number {
+  return (o.repuestos || []).reduce((s: number, r: any) =>
+    s + costoRepuesto(r) * Number(r.cantidad || 1), 0);
 }
 
 function cobradoTotal(o: any): number {
   if (o.cobrado === true) return Number(o.costo || 0);
-  const pagos: any[] = o.pagos || [];
-  return pagos.reduce((s: number, p: any) => s + Number(p.monto || 0), 0);
+  return (o.pagos || []).reduce((s: number, p: any) => s + Number(p.monto || 0), 0);
 }
-
 function saldoPendiente(o: any): number {
   return Math.max(0, Number(o.costo || 0) - cobradoTotal(o));
 }
@@ -42,7 +52,6 @@ const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { background: #0a0f1a; }
   body { overscroll-behavior: none; }
-
   .app {
     min-height: 100vh; min-height: 100dvh;
     background: #0a0f1a; color: #e2e8f0;
@@ -50,30 +59,27 @@ const CSS = `
     display: flex; flex-direction: column;
     max-width: 480px; margin: 0 auto;
   }
-
   /* PIN */
   .pin-screen {
-    min-height: 100vh; min-height: 100dvh;
-    background: #0a0f1a; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; padding: 32px 24px;
-    font-family: 'Courier New', monospace;
+    min-height: 100vh; min-height: 100dvh; background: #0a0f1a;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 32px 24px; font-family: 'Courier New', monospace;
   }
   .pin-logo { font-size: 22px; font-weight: 900; color: #f97316; letter-spacing: 3px; margin-bottom: 8px; }
-  .pin-sub { font-size: 11px; color: #64748b; letter-spacing: 2px; margin-bottom: 40px; }
+  .pin-sub  { font-size: 11px; color: #64748b; letter-spacing: 2px; margin-bottom: 40px; }
   .pin-dots { display: flex; gap: 16px; margin-bottom: 32px; }
-  .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #334155; background: transparent; transition: background 0.15s; }
+  .pin-dot  { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #334155; background: transparent; transition: background 0.15s; }
   .pin-dot.filled { background: #f97316; border-color: #f97316; }
-  .pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 280px; }
-  .pin-key {
+  .pin-pad  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; max-width: 280px; }
+  .pin-key  {
     background: #0f172a; border: 1px solid #1e293b; border-radius: 10px;
     color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 22px;
-    font-weight: 700; padding: 18px; cursor: pointer; text-align: center;
-    min-height: 64px; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; padding: 18px; cursor: pointer; min-height: 64px;
+    display: flex; align-items: center; justify-content: center;
   }
   .pin-key:active { background: #1e293b; }
   .pin-key.delete { color: #f97316; }
   .pin-error { color: #ef4444; font-size: 13px; margin-bottom: 16px; letter-spacing: 1px; }
-
   /* Header */
   .header {
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
@@ -83,11 +89,9 @@ const CSS = `
   }
   .logo { font-size: 18px; font-weight: 900; letter-spacing: 2px; color: #f97316; }
   .lock-btn { background: transparent; border: none; color: #64748b; font-size: 18px; cursor: pointer; padding: 4px; }
-
   /* Main */
   .main { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 90px; }
-
-  /* Nav inferior */
+  /* Nav */
   .bottom-nav {
     position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
     width: 100%; max-width: 480px; background: #0f172a;
@@ -101,28 +105,23 @@ const CSS = `
     font-family: 'Courier New', monospace; gap: 3px;
   }
   .nav-btn.active { background: #1e293b; }
-  .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-icon  { font-size: 20px; line-height: 1; }
   .nav-label { font-size: 9px; letter-spacing: 1px; color: #64748b; text-transform: uppercase; font-weight: 700; }
   .nav-btn.active .nav-label { color: #f97316; }
-
   /* KPIs */
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
   .kpi-card { background: #0f172a; border-radius: 8px; padding: 14px 12px; border-left: 3px solid var(--accent); }
   .kpi-label { font-size: 9px; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
-  .kpi-val { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; }
-  .kpi-sub { font-size: 9px; color: #475569; margin-top: 4px; }
-
+  .kpi-val   { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; }
+  .kpi-sub   { font-size: 9px; color: #475569; margin-top: 4px; }
   /* Cards */
   .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
   .card-title { font-size: 10px; letter-spacing: 3px; color: #f97316; text-transform: uppercase; font-weight: 700; margin-bottom: 12px; }
-
-  /* Orden item */
-  .orden-item { padding: 12px 0; border-bottom: 1px solid #1e293b; }
-  .orden-item:last-child { border-bottom: none; padding-bottom: 0; }
-
+  /* Listas */
+  .item-row { padding: 12px 0; border-bottom: 1px solid #1e293b; }
+  .item-row:last-child { border-bottom: none; padding-bottom: 0; }
   /* Badge */
   .badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 700; }
-
   /* Botones */
   .btn {
     border: none; border-radius: 6px; padding: 12px 20px;
@@ -135,7 +134,7 @@ const CSS = `
   .btn-warning { background: #92400e; color: #fbbf24; }
   .btn-danger  { background: #7f1d1d; color: #f87171; }
   .btn-ghost   { background: #1e293b; color: #94a3b8; }
-  .btn-sm { padding: 8px 14px; font-size: 11px; min-height: 36px; border-radius: 4px; }
+  .btn-sm   { padding: 8px 14px; font-size: 11px; min-height: 36px; border-radius: 4px; }
   .btn-full { width: 100%; }
   .btn-fab {
     position: fixed; bottom: 80px; right: 20px;
@@ -146,17 +145,15 @@ const CSS = `
     display: flex; align-items: center; justify-content: center; z-index: 90;
   }
   @media (min-width: 480px) { .btn-fab { right: calc(50% - 220px); } }
-
-  /* Formularios */
-  .form-group { margin-bottom: 14px; }
-  .form-label { font-size: 10px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px; }
+  /* Forms */
+  .form-group  { margin-bottom: 14px; }
+  .form-label  { font-size: 10px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px; }
   .form-input, .form-select {
     background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
     padding: 12px 14px; border-radius: 6px; width: 100%;
     font-family: 'Courier New', monospace; font-size: 14px; min-height: 44px;
   }
   .form-input:focus, .form-select:focus { outline: none; border-color: #f97316; }
-
   /* Modal */
   .modal-bg {
     position: fixed; inset: 0; background: rgba(0,0,0,0.9);
@@ -168,79 +165,75 @@ const CSS = `
     width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto;
   }
   .modal-handle { width: 40px; height: 4px; background: #334155; border-radius: 2px; margin: 0 auto 16px; }
-
-  /* Progreso */
-  .progress-wrap { background: #1e293b; border-radius: 3px; height: 8px; overflow: hidden; }
-  .progress-bar  { height: 100%; border-radius: 3px; }
-
-  /* Alerts */
-  .alert-item { background: #431407; border: 1px solid #f97316; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
-  .cobro-item { background: #1c1208; border: 1px solid #d97706; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
-
-  .select-inline {
-    background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
-    padding: 6px 8px; border-radius: 4px; font-family: 'Courier New', monospace;
-    font-size: 11px; min-height: 36px;
+  /* Repuestos */
+  .rep-card {
+    background: #0a0f1a; border: 1px solid #334155; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 8px;
   }
-
-  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .rep-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .rep-calc { font-size: 11px; color: #64748b; display: flex; justify-content: space-between; }
+  /* Pagos */
+  .pago-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid #1e293b; font-size: 12px; }
+  .pago-row:last-child { border-bottom: none; }
+  /* Cliente vehiculo */
+  .vtag { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 4px 10px; font-size: 12px; margin: 3px; color: #e2e8f0; }
+  /* Misc */
+  .cobro-item { background: #1c1208; border: 1px solid #d97706; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .alert-item { background: #431407; border: 1px solid #f97316; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
+  .select-inline { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 6px 8px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 11px; min-height: 36px; }
+  .row   { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
   .empty { color: #475569; font-size: 13px; text-align: center; padding: 32px 0; }
   .loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0f1a; color: #f97316; font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 3px; }
-
-  /* Pago parcial */
-  .pago-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #1e293b; font-size: 12px; }
-  .pago-row:last-child { border-bottom: none; }
-
-  /* Cliente vehiculo tag */
-  .vehiculo-tag { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 4px 10px; font-size: 12px; margin: 3px; color: #e2e8f0; }
-
-  /* Separador */
-  .sep { border: none; border-top: 1px solid #1e293b; margin: 12px 0; }
+  .progress-wrap { background: #1e293b; border-radius: 3px; height: 8px; overflow: hidden; }
+  .progress-bar  { height: 100%; border-radius: 3px; }
 `;
 
 const TABS = [
-  { id: "Inicio",      icon: "🏠", label: "Inicio" },
-  { id: "Órdenes",    icon: "🔧", label: "Órdenes" },
-  { id: "Finanzas",   icon: "💰", label: "Finanzas" },
-  { id: "Clientes",   icon: "👤", label: "Clientes" },
-  { id: "Inventario", icon: "📦", label: "Stock" },
+  { id: "Inicio",    icon: "🏠", label: "Inicio" },
+  { id: "Órdenes",  icon: "🔧", label: "Órdenes" },
+  { id: "Finanzas", icon: "💰", label: "Finanzas" },
+  { id: "Clientes", icon: "👤", label: "Clientes" },
 ];
 
 const PIN_LENGTH = 4;
+const ESTADOS = ["pendiente", "en proceso", "esperando repuesto", "completado"];
 
 export default function TallerBlanco() {
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // Auth
   const [autenticado, setAutenticado] = useState(false);
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState("");
+  const [pinInput, setPinInput]       = useState("");
+  const [pinError, setPinError]       = useState("");
   const [pinGuardado, setPinGuardado] = useState<string | null>(null);
 
-  // ── App state ─────────────────────────────────────────────────────────────
-  const [tab, setTab] = useState("Inicio");
-  const [ordenes, setOrdenes] = useState<any[]>([]);
-  const [gastos, setGastos] = useState<any[]>([]);
+  // Data
+  const [tab, setTab]           = useState("Inicio");
+  const [ordenes, setOrdenes]   = useState<any[]>([]);
+  const [gastos, setGastos]     = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
-  const [inventario, setInventario] = useState<any[]>([]);
-  const [modal, setModal] = useState<string | null>(null);
-  const [form, setForm] = useState<any>({});
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [editId, setEditId] = useState<number | null>(null);
-  const [pagoMonto, setPagoMonto] = useState("");
+  const [loading, setLoading]   = useState(true);
+
+  // UI
+  const [modal, setModal]       = useState<string | null>(null);
+  const [form, setForm]         = useState<any>({});
+  const [editId, setEditId]     = useState<number | null>(null);
+  const [search, setSearch]     = useState("");
+
+  // Repuestos dentro del form de orden
+  const [repuestos, setRepuestos] = useState<any[]>([]);
+  const [repForm, setRepForm]     = useState({ nombre: "", precioVenta: "", cantidad: "1" });
+
+  // Pago parcial
   const [pagoOrdenId, setPagoOrdenId] = useState<number | null>(null);
+  const [pagoMonto, setPagoMonto]     = useState("");
 
-  useEffect(() => {
-    cargarPin();
-    fetchAll();
-  }, []);
+  useEffect(() => { cargarPin(); fetchAll(); }, []);
 
+  // ── PIN ───────────────────────────────────────────────────────────────────
   async function cargarPin() {
     const { data } = await supabase.from("config").select("valor").eq("clave", "pin").single();
-    if (data?.valor) setPinGuardado(data.valor);
-    else setPinGuardado(""); // sin pin → acceso libre
+    setPinGuardado(data?.valor ?? "");
   }
 
-  // ── PIN logic ─────────────────────────────────────────────────────────────
   function presionarTecla(k: string) {
     if (pinInput.length >= PIN_LENGTH) return;
     const nuevo = pinInput + k;
@@ -249,65 +242,93 @@ export default function TallerBlanco() {
     if (nuevo.length === PIN_LENGTH) verificarPin(nuevo);
   }
 
-  function borrarTecla() {
-    setPinInput(prev => prev.slice(0, -1));
-    setPinError("");
+  function borrarTecla() { setPinInput(p => p.slice(0, -1)); setPinError(""); }
+
+  function verificarPin(intento: string) {
+    if (pinGuardado === "" || intento === pinGuardado) { setAutenticado(true); }
+    else { setTimeout(() => { setPinInput(""); setPinError("PIN incorrecto"); }, 300); }
   }
 
-  async function verificarPin(intento: string) {
-    // Si no hay pin configurado, entrar directo
-    if (pinGuardado === "") { setAutenticado(true); return; }
-    if (intento === pinGuardado) {
-      setAutenticado(true);
-    } else {
-      setTimeout(() => { setPinInput(""); setPinError("PIN incorrecto"); }, 300);
-    }
-  }
-
-  async function guardarNuevoPin(nuevoPin: string) {
-    await supabase.from("config").upsert({ clave: "pin", valor: nuevoPin });
-    setPinGuardado(nuevoPin);
+  async function guardarNuevoPin(pin: string) {
+    await supabase.from("config").upsert({ clave: "pin", valor: pin });
+    setPinGuardado(pin);
   }
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchAll() {
     setLoading(true);
-    const [o, g, c, i] = await Promise.all([
+    const [o, g, c] = await Promise.all([
       supabase.from("ordenes").select("*").order("created_at", { ascending: false }),
       supabase.from("gastos").select("*").order("created_at", { ascending: false }),
       supabase.from("clientes").select("*").order("created_at", { ascending: false }),
-      supabase.from("inventario").select("*").order("created_at", { ascending: false }),
     ]);
     setOrdenes(o.data || []);
     setGastos(g.data || []);
     setClientes(c.data || []);
-    setInventario(i.data || []);
     setLoading(false);
   }
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  const cobradas       = ordenes.filter(o => saldoPendiente(o) === 0 && (o.cobrado || (o.pagos || []).length > 0));
+  const todasCobradas  = ordenes.filter(o => saldoPendiente(o) === 0 && (o.cobrado || (o.pagos||[]).length > 0));
   const sinCobrar      = ordenes.filter(o => o.estado === "completado" && saldoPendiente(o) > 0);
   const totalIngresos  = ordenes.reduce((s, o) => s + cobradoTotal(o), 0);
-  const totalGanancia  = cobradas.reduce((s, o) => s + calcGananciaOrden(o), 0);
+  const totalGanancia  = todasCobradas.reduce((s, o) => s + calcGananciaOrden(o), 0);
   const totalGastos    = gastos.reduce((s, g) => s + Number(g.monto || 0), 0);
   const utilidad       = totalGanancia - totalGastos;
   const ordenesActivas = ordenes.filter(o => o.estado !== "completado").length;
   const aCobrar        = sinCobrar.reduce((s, o) => s + saldoPendiente(o), 0);
-  const ticketPromedio = cobradas.length ? Math.round(totalIngresos / cobradas.length) : 0;
-  const stockBajo      = inventario.filter(i => i.cantidad <= i.minimo).length;
 
-  // ── CRUD Órdenes ──────────────────────────────────────────────────────────
+  // ── Orden ─────────────────────────────────────────────────────────────────
+  function abrirNuevaOrden() {
+    setEditId(null);
+    setForm({ fecha: new Date().toISOString().slice(0, 10), estado: "pendiente" });
+    setRepuestos([]);
+    setRepForm({ nombre: "", precioVenta: "", cantidad: "1" });
+    setModal("orden");
+  }
+
+  function abrirEditarOrden(o: any) {
+    setEditId(o.id);
+    setForm({ cliente: o.cliente, vehiculo: o.vehiculo, placa: o.placa,
+      servicio: o.servicio, mecanico: o.mecanico,
+      costo: o.costo, estado: o.estado, fecha: o.fecha });
+    setRepuestos(o.repuestos || []);
+    setRepForm({ nombre: "", precioVenta: "", cantidad: "1" });
+    setModal("orden");
+  }
+
+  function agregarRepuesto() {
+    if (!repForm.nombre || !repForm.precioVenta) return;
+    setRepuestos(prev => [...prev, {
+      nombre: repForm.nombre,
+      precioVenta: Number(repForm.precioVenta),
+      cantidad: Number(repForm.cantidad) || 1,
+    }]);
+    setRepForm({ nombre: "", precioVenta: "", cantidad: "1" });
+  }
+
+  function quitarRepuesto(idx: number) {
+    setRepuestos(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  // Calcula el costo total automáticamente sumando mano de obra + repuestos a precio de venta
+  function calcCostoOrden() {
+    const totalRep = repuestos.reduce((s, r) =>
+      s + Number(r.precioVenta) * Number(r.cantidad || 1), 0);
+    const manoObra = Number(form.mano_obra || 0);
+    return totalRep + manoObra;
+  }
+
   async function guardarOrden() {
-    const datos = {
-      cliente:  form.cliente,
-      vehiculo: form.vehiculo,
-      placa:    form.placa,
-      servicio: form.servicio,
-      mecanico: form.mecanico,
-      costo:    Number(form.costo) || 0,
-      estado:   form.estado || "pendiente",
-      fecha:    form.fecha,
+    const costoFinal = calcCostoOrden();
+    const datos: any = {
+      cliente: form.cliente, vehiculo: form.vehiculo, placa: form.placa,
+      servicio: form.servicio, mecanico: form.mecanico,
+      costo: costoFinal,
+      mano_obra: Number(form.mano_obra || 0),
+      estado: form.estado || "pendiente",
+      fecha: form.fecha,
+      repuestos,
     };
     if (editId) {
       const { data, error } = await supabase.from("ordenes").update(datos).eq("id", editId).select();
@@ -320,24 +341,14 @@ export default function TallerBlanco() {
     closeModal();
   }
 
-  function abrirEditarOrden(o: any) {
-    setEditId(o.id);
-    setForm({
-      cliente: o.cliente, vehiculo: o.vehiculo, placa: o.placa,
-      servicio: o.servicio, mecanico: o.mecanico,
-      costo: o.costo, estado: o.estado, fecha: o.fecha,
-    });
-    setModal("orden");
-  }
-
   async function cambiarEstado(id: number, estado: string) {
     await supabase.from("ordenes").update({ estado }).eq("id", id);
     setOrdenes(prev => prev.map(o => o.id === id ? { ...o, estado } : o));
   }
 
   async function marcarCobrado(id: number) {
-    const { error } = await supabase.from("ordenes").update({ cobrado: true }).eq("id", id);
-    if (!error) setOrdenes(prev => prev.map(o => o.id === id ? { ...o, cobrado: true } : o));
+    await supabase.from("ordenes").update({ cobrado: true }).eq("id", id);
+    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, cobrado: true } : o));
   }
 
   async function registrarPago(id: number) {
@@ -345,18 +356,15 @@ export default function TallerBlanco() {
     if (!monto || monto <= 0) return;
     const orden = ordenes.find(o => o.id === id);
     if (!orden) return;
-    const pagosActuales: any[] = orden.pagos || [];
-    const nuevosPagos = [...pagosActuales, { monto, fecha: new Date().toISOString().slice(0, 10) }];
+    const nuevosPagos = [...(orden.pagos || []), { monto, fecha: new Date().toISOString().slice(0, 10) }];
     const totalPagado = nuevosPagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
     const cobrado = totalPagado >= Number(orden.costo);
-    const { error } = await supabase.from("ordenes").update({ pagos: nuevosPagos, cobrado }).eq("id", id);
-    if (!error) setOrdenes(prev => prev.map(o => o.id === id ? { ...o, pagos: nuevosPagos, cobrado } : o));
-    setPagoMonto("");
-    setPagoOrdenId(null);
-    setModal(null);
+    await supabase.from("ordenes").update({ pagos: nuevosPagos, cobrado }).eq("id", id);
+    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, pagos: nuevosPagos, cobrado } : o));
+    setPagoMonto(""); setPagoOrdenId(null); setModal(null);
   }
 
-  // ── CRUD Gastos ───────────────────────────────────────────────────────────
+  // ── Gasto ─────────────────────────────────────────────────────────────────
   async function addGasto() {
     const nuevo = { concepto: form.concepto, monto: Number(form.monto) || 0, categoria: form.categoria, fecha: form.fecha };
     const { data, error } = await supabase.from("gastos").insert([nuevo]).select();
@@ -364,15 +372,10 @@ export default function TallerBlanco() {
     closeModal();
   }
 
-  // ── CRUD Clientes ─────────────────────────────────────────────────────────
+  // ── Cliente ───────────────────────────────────────────────────────────────
   async function guardarCliente() {
-    const vehiculosArr = (form.vehiculos_txt || "")
-      .split(",").map((v: string) => v.trim()).filter(Boolean);
-    const datos = {
-      nombre: form.nombre, telefono: form.telefono,
-      email: form.email, cuit: form.cuit,
-      vehiculos: vehiculosArr,
-    };
+    const vehiculosArr = (form.vehiculos_txt || "").split(",").map((v: string) => v.trim()).filter(Boolean);
+    const datos = { nombre: form.nombre, telefono: form.telefono, email: form.email, cuit: form.cuit, vehiculos: vehiculosArr };
     if (editId) {
       const { data, error } = await supabase.from("clientes").update(datos).eq("id", editId).select();
       if (data && !error) setClientes(prev => prev.map(c => c.id === editId ? { ...c, ...data[0] } : c));
@@ -385,21 +388,8 @@ export default function TallerBlanco() {
 
   function abrirEditarCliente(c: any) {
     setEditId(c.id);
-    setForm({
-      nombre: c.nombre, telefono: c.telefono, email: c.email,
-      cuit: c.cuit || "",
-      vehiculos_txt: (c.vehiculos || []).join(", "),
-    });
+    setForm({ nombre: c.nombre, telefono: c.telefono, email: c.email, cuit: c.cuit || "", vehiculos_txt: (c.vehiculos || []).join(", ") });
     setModal("cliente");
-  }
-
-  // ── Stock ─────────────────────────────────────────────────────────────────
-  async function ajustarStock(id: number, delta: number) {
-    const item = inventario.find(i => i.id === id);
-    if (!item) return;
-    const nueva = Math.max(0, item.cantidad + delta);
-    await supabase.from("inventario").update({ cantidad: nueva }).eq("id", id);
-    setInventario(prev => prev.map(i => i.id === id ? { ...i, cantidad: nueva } : i));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -416,9 +406,9 @@ export default function TallerBlanco() {
     </div>
   );
 
-  // ── PIN screen ────────────────────────────────────────────────────────────
   if (loading) return <div className="loading">CARGANDO...</div>;
 
+  // ── Pantalla PIN ──────────────────────────────────────────────────────────
   if (!autenticado && pinGuardado !== "") {
     return (
       <>
@@ -436,7 +426,7 @@ export default function TallerBlanco() {
             {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, idx) => (
               <button key={idx} className={`pin-key ${k === "⌫" ? "delete" : ""}`}
                 style={{ visibility: k === "" ? "hidden" : "visible" }}
-                onClick={() => k === "⌫" ? borrarTecla() : k !== "" ? presionarTecla(k) : null}>
+                onClick={() => k === "⌫" ? borrarTecla() : k && presionarTecla(k)}>
                 {k}
               </button>
             ))}
@@ -446,19 +436,19 @@ export default function TallerBlanco() {
     );
   }
 
+  // ── App ───────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{CSS}</style>
       <div className="app">
 
-        {/* Header */}
         <div className="header">
           <div className="logo">🔩 TALLER BLANCO</div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 10, color: "#64748b" }}>
               {new Date().toLocaleDateString("es-AR", { day: "numeric", month: "short" }).toUpperCase()}
             </span>
-            <button className="lock-btn" onClick={() => setAutenticado(false)} title="Bloquear">🔒</button>
+            <button className="lock-btn" onClick={() => setAutenticado(false)}>🔒</button>
           </div>
         </div>
 
@@ -468,41 +458,28 @@ export default function TallerBlanco() {
           {tab === "Inicio" && (
             <div>
               <div className="kpi-grid">
-                <div className="kpi-card" style={{ "--accent": "#22c55e" } as any}>
-                  <div className="kpi-label">Cobrado</div>
-                  <div className="kpi-val">{fmt(totalIngresos)}</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#fb923c" } as any}>
-                  <div className="kpi-label">Ganancia real</div>
-                  <div className="kpi-val">{fmt(totalGanancia)}</div>
-                  <div className="kpi-sub">sin repuestos</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#ef4444" } as any}>
-                  <div className="kpi-label">Gastos</div>
-                  <div className="kpi-val">{fmt(totalGastos)}</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": utilidad >= 0 ? "#f97316" : "#ef4444" } as any}>
-                  <div className="kpi-label">Utilidad neta</div>
-                  <div className="kpi-val">{fmt(utilidad)}</div>
-                  <div className="kpi-sub">ganancia − gastos</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#f59e0b" } as any}>
-                  <div className="kpi-label">Activas</div>
-                  <div className="kpi-val">{ordenesActivas}</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#3b82f6" } as any}>
-                  <div className="kpi-label">A cobrar</div>
-                  <div className="kpi-val">{fmt(aCobrar)}</div>
-                </div>
+                {[
+                  { label: "Cobrado",      val: fmt(totalIngresos), accent: "#22c55e" },
+                  { label: "Ganancia real",val: fmt(totalGanancia), accent: "#fb923c", sub: "sin costo repuestos" },
+                  { label: "Gastos",       val: fmt(totalGastos),  accent: "#ef4444" },
+                  { label: "Utilidad neta",val: fmt(utilidad),     accent: utilidad >= 0 ? "#f97316" : "#ef4444", sub: "ganancia − gastos" },
+                  { label: "Activas",      val: String(ordenesActivas), accent: "#f59e0b" },
+                  { label: "A cobrar",     val: fmt(aCobrar),      accent: "#3b82f6" },
+                ].map(k => (
+                  <div key={k.label} className="kpi-card" style={{ "--accent": k.accent } as any}>
+                    <div className="kpi-label">{k.label}</div>
+                    <div className="kpi-val">{k.val}</div>
+                    {k.sub && <div className="kpi-sub">{k.sub}</div>}
+                  </div>
+                ))}
               </div>
 
-              {/* Pendientes de cobro */}
               {sinCobrar.length > 0 && (
                 <div className="card" style={{ borderColor: "#d97706" }}>
                   <div className="card-title" style={{ color: "#f59e0b" }}>⏳ A cobrar ({sinCobrar.length})</div>
                   {sinCobrar.map((o: any) => {
                     const saldo = saldoPendiente(o);
-                    const parcial = cobradoTotal(o) > 0 && saldo > 0;
+                    const parcial = cobradoTotal(o) > 0;
                     return (
                       <div key={o.id} className="cobro-item">
                         <div style={{ flex: 1 }}>
@@ -511,7 +488,7 @@ export default function TallerBlanco() {
                           {parcial && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Pagado: {fmt(cobradoTotal(o))}</div>}
                           <div style={{ fontSize: 16, color: "#f97316", fontWeight: 900, marginTop: 4 }}>Saldo: {fmt(saldo)}</div>
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
                           <button className="btn btn-success btn-sm" onClick={() => marcarCobrado(o.id)}>✓ Todo</button>
                           <button className="btn btn-warning btn-sm" onClick={() => { setPagoOrdenId(o.id); setModal("pago"); }}>$ Parcial</button>
                         </div>
@@ -521,18 +498,17 @@ export default function TallerBlanco() {
                 </div>
               )}
 
-              {/* Órdenes activas */}
               <div className="card">
                 <div className="card-title">Órdenes activas</div>
                 {ordenes.filter(o => o.estado !== "completado").length === 0
                   ? <div className="empty">Sin órdenes activas</div>
                   : ordenes.filter(o => o.estado !== "completado").slice(0, 5).map((o: any) => (
-                    <div key={o.id} className="orden-item">
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
+                    <div key={o.id} className="item-row">
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <div>
                           <div style={{ fontSize: 14, fontWeight: 700 }}>{o.cliente}</div>
                           <div style={{ fontSize: 11, color: "#64748b" }}>{o.vehiculo} · {o.servicio}</div>
-                          <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                          <span className="badge" style={{ background: estadoBg[o.estado]||"#1e293b", color: estadoColor[o.estado]||"#94a3b8" }}>{o.estado}</span>
                         </div>
                         <div style={{ fontSize: 16, fontWeight: 900, color: "#f97316" }}>{fmt(o.costo)}</div>
                       </div>
@@ -541,18 +517,8 @@ export default function TallerBlanco() {
                 }
               </div>
 
-              {/* Stock bajo */}
-              {stockBajo > 0 && (
-                <div className="card" style={{ borderColor: "#f97316" }}>
-                  <div className="card-title">⚠ Stock bajo</div>
-                  {inventario.filter(i => i.cantidad <= i.minimo).map((i: any) => (
-                    <div key={i.id} className="alert-item"><strong>{i.nombre}</strong> — {i.cantidad} {i.unidad} (mín. {i.minimo})</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Cambiar PIN */}
-              <div className="card" style={{ borderColor: "#1e293b" }}>
+              {/* Configuración */}
+              <div className="card">
                 <div className="card-title">⚙ Configuración</div>
                 <button className="btn btn-ghost btn-full" onClick={() => setModal("pin")}>🔑 Cambiar PIN</button>
               </div>
@@ -564,6 +530,7 @@ export default function TallerBlanco() {
             <div>
               <input className="form-input" placeholder="Buscar cliente, vehículo, folio..."
                 value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+
               {ordenes
                 .filter(o =>
                   o.cliente?.toLowerCase().includes(search.toLowerCase()) ||
@@ -572,25 +539,50 @@ export default function TallerBlanco() {
                 )
                 .map((o: any) => {
                   const ganancia = calcGananciaOrden(o);
-                  const saldo = saldoPendiente(o);
-                  const pagadoParcial = cobradoTotal(o) > 0 && saldo > 0;
+                  const saldo    = saldoPendiente(o);
+                  const parcial  = cobradoTotal(o) > 0 && saldo > 0;
+                  const costoRep = costoTotalRepuestos(o);
                   return (
-                    <div key={o.id} className="card" style={{ borderLeft: `3px solid ${estadoColor[o.estado] || "#334155"}` }}>
+                    <div key={o.id} className="card" style={{ borderLeft: `3px solid ${estadoColor[o.estado]||"#334155"}` }}>
                       <div className="row" style={{ marginBottom: 8 }}>
                         <span style={{ color: "#f97316", fontWeight: 700, fontSize: 13 }}>{o.folio}</span>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <span className="badge" style={{ background: estadoBg[o.estado] || "#1e293b", color: estadoColor[o.estado] || "#94a3b8" }}>{o.estado}</span>
+                          <span className="badge" style={{ background: estadoBg[o.estado]||"#1e293b", color: estadoColor[o.estado]||"#94a3b8" }}>{o.estado}</span>
                           <button className="btn btn-ghost btn-sm" style={{ padding: "4px 10px" }} onClick={() => abrirEditarOrden(o)}>✏</button>
                         </div>
                       </div>
+
                       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{o.cliente}</div>
                       <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 2 }}>{o.vehiculo}{o.placa ? ` · ${o.placa}` : ""}</div>
                       <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>{o.servicio}{o.mecanico ? ` · ${o.mecanico}` : ""}</div>
+
+                      {/* Repuestos */}
+                      {(o.repuestos || []).length > 0 && (
+                        <div style={{ background: "#0a0f1a", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+                          <div style={{ fontSize: 9, color: "#64748b", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Repuestos</div>
+                          {(o.repuestos || []).map((r: any, idx: number) => (
+                            <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid #1e293b" }}>
+                              <span style={{ color: "#94a3b8" }}>{r.nombre} ×{r.cantidad || 1}</span>
+                              <div style={{ textAlign: "right" }}>
+                                <span style={{ color: "#e2e8f0" }}>{fmt(r.precioVenta * (r.cantidad || 1))}</span>
+                                <span style={{ color: "#64748b", fontSize: 10, marginLeft: 6 }}>costo {fmt(costoRepuesto(r) * (r.cantidad || 1))}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {o.mano_obra > 0 && (
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, paddingTop: 4 }}>
+                              <span style={{ color: "#94a3b8" }}>Mano de obra</span>
+                              <span style={{ color: "#e2e8f0" }}>{fmt(o.mano_obra)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="row" style={{ marginBottom: 8 }}>
                         <div>
                           <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>TOTAL</div>
                           <div style={{ fontSize: 20, fontWeight: 900, color: "#22c55e" }}>{fmt(o.costo)}</div>
+                          {costoRep > 0 && <div style={{ fontSize: 10, color: "#64748b" }}>costo rep: {fmt(costoRep)}</div>}
                         </div>
                         <div style={{ textAlign: "right" }}>
                           <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>GANANCIA</div>
@@ -598,17 +590,17 @@ export default function TallerBlanco() {
                         </div>
                       </div>
 
-                      {/* Pagos parciales */}
+                      {/* Historial de pagos */}
                       {(o.pagos || []).length > 0 && (
-                        <div style={{ marginBottom: 10, background: "#0a0f1a", borderRadius: 6, padding: "8px 10px" }}>
+                        <div style={{ background: "#0a0f1a", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
                           {(o.pagos || []).map((p: any, idx: number) => (
                             <div key={idx} className="pago-row">
                               <span style={{ color: "#94a3b8" }}>Pago {idx + 1} · {p.fecha}</span>
                               <span style={{ color: "#4ade80", fontWeight: 700 }}>{fmt(p.monto)}</span>
                             </div>
                           ))}
-                          {pagadoParcial && (
-                            <div className="pago-row" style={{ marginTop: 4 }}>
+                          {parcial && (
+                            <div className="pago-row">
                               <span style={{ color: "#f59e0b", fontWeight: 700 }}>Saldo pendiente</span>
                               <span style={{ color: "#f59e0b", fontWeight: 700 }}>{fmt(saldo)}</span>
                             </div>
@@ -617,11 +609,9 @@ export default function TallerBlanco() {
                       )}
 
                       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <select className="select-inline" style={{ flex: 1, minWidth: 120 }} value={o.estado} onChange={e => cambiarEstado(o.id, e.target.value)}>
-                          <option value="pendiente">Pendiente</option>
-                          <option value="en proceso">En proceso</option>
-                          <option value="esperando repuesto">Esp. repuesto</option>
-                          <option value="completado">Completado</option>
+                        <select className="select-inline" style={{ flex: 1, minWidth: 120 }}
+                          value={o.estado} onChange={e => cambiarEstado(o.id, e.target.value)}>
+                          {ESTADOS.map(e => <option key={e} value={e}>{e === "esperando repuesto" ? "Esp. repuesto" : e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
                         </select>
                         {o.estado === "completado" && saldo > 0 && (
                           <>
@@ -629,7 +619,7 @@ export default function TallerBlanco() {
                             <button className="btn btn-warning btn-sm" onClick={() => { setPagoOrdenId(o.id); setModal("pago"); }}>$ Parcial</button>
                           </>
                         )}
-                        {saldo === 0 && (o.cobrado || (o.pagos || []).length > 0) && (
+                        {saldo === 0 && (o.cobrado || (o.pagos||[]).length > 0) && (
                           <span style={{ color: "#22c55e", fontSize: 12, fontWeight: 700 }}>✓ Cobrado</span>
                         )}
                       </div>
@@ -637,7 +627,7 @@ export default function TallerBlanco() {
                   );
                 })}
               {ordenes.length === 0 && <div className="empty">No hay órdenes todavía</div>}
-              <button className="btn-fab" onClick={() => { setEditId(null); setForm({ fecha: new Date().toISOString().slice(0, 10) }); setModal("orden"); }}>+</button>
+              <button className="btn-fab" onClick={abrirNuevaOrden}>+</button>
             </div>
           )}
 
@@ -645,23 +635,18 @@ export default function TallerBlanco() {
           {tab === "Finanzas" && (
             <div>
               <div className="kpi-grid">
-                <div className="kpi-card" style={{ "--accent": "#22c55e" } as any}>
-                  <div className="kpi-label">Total cobrado</div>
-                  <div className="kpi-val">{fmt(totalIngresos)}</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#fb923c" } as any}>
-                  <div className="kpi-label">Ganancia real</div>
-                  <div className="kpi-val">{fmt(totalGanancia)}</div>
-                  <div className="kpi-sub">− costo repuestos</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": "#ef4444" } as any}>
-                  <div className="kpi-label">Total gastos</div>
-                  <div className="kpi-val">{fmt(totalGastos)}</div>
-                </div>
-                <div className="kpi-card" style={{ "--accent": utilidad >= 0 ? "#f97316" : "#ef4444" } as any}>
-                  <div className="kpi-label">Utilidad neta</div>
-                  <div className="kpi-val">{fmt(utilidad)}</div>
-                </div>
+                {[
+                  { label: "Total cobrado", val: fmt(totalIngresos), accent: "#22c55e" },
+                  { label: "Ganancia real",  val: fmt(totalGanancia), accent: "#fb923c", sub: "− costo repuestos" },
+                  { label: "Total gastos",   val: fmt(totalGastos),   accent: "#ef4444" },
+                  { label: "Utilidad neta",  val: fmt(utilidad),      accent: utilidad >= 0 ? "#f97316" : "#ef4444" },
+                ].map(k => (
+                  <div key={k.label} className="kpi-card" style={{ "--accent": k.accent } as any}>
+                    <div className="kpi-label">{k.label}</div>
+                    <div className="kpi-val">{k.val}</div>
+                    {k.sub && <div className="kpi-sub">{k.sub}</div>}
+                  </div>
+                ))}
               </div>
               <div className="card">
                 <div className="row" style={{ marginBottom: 12 }}>
@@ -671,9 +656,9 @@ export default function TallerBlanco() {
                 {gastos.length === 0
                   ? <div className="empty">Sin gastos registrados</div>
                   : gastos.map((g: any) => (
-                    <div key={g.id} className="orden-item">
+                    <div key={g.id} className="item-row">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ flex: 1 }}>
+                        <div>
                           <div style={{ fontSize: 13, fontWeight: 700 }}>{g.concepto}</div>
                           <div style={{ fontSize: 11, color: "#64748b", textTransform: "capitalize" }}>{g.categoria} · {g.fecha}</div>
                         </div>
@@ -697,19 +682,15 @@ export default function TallerBlanco() {
                   </div>
                   <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 2 }}>📞 {c.telefono}</div>
                   {c.email && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 2 }}>✉ {c.email}</div>}
-                  {c.cuit && <div style={{ fontSize: 13, color: "#64748b", marginBottom: 2 }}>🪪 {c.cuit}</div>}
-
+                  {c.cuit  && <div style={{ fontSize: 13, color: "#64748b", marginBottom: 2 }}>🪪 {c.cuit}</div>}
                   {(c.vehiculos || []).length > 0 && (
                     <div style={{ marginTop: 10 }}>
                       <div style={{ fontSize: 9, color: "#64748b", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Vehículos</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {(c.vehiculos || []).map((v: string, idx: number) => (
-                          <span key={idx} className="vehiculo-tag">{v}</span>
-                        ))}
+                      <div style={{ display: "flex", flexWrap: "wrap" }}>
+                        {(c.vehiculos || []).map((v: string, idx: number) => <span key={idx} className="vtag">{v}</span>)}
                       </div>
                     </div>
                   )}
-
                   <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 11, color: "#64748b" }}>VISITAS</span>
                     <span style={{ fontSize: 22, fontWeight: 900, color: "#a78bfa" }}>{c.visitas || 0}</span>
@@ -721,39 +702,9 @@ export default function TallerBlanco() {
             </div>
           )}
 
-          {/* ══ INVENTARIO ══ */}
-          {tab === "Inventario" && (
-            <div>
-              {inventario.map((i: any) => {
-                const bajo = i.cantidad <= i.minimo;
-                return (
-                  <div key={i.id} className="card" style={{ borderLeft: `3px solid ${bajo ? "#ef4444" : "#22c55e"}` }}>
-                    <div className="row" style={{ marginBottom: 6 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700 }}>{i.nombre}</div>
-                      <span className="badge" style={{ background: bajo ? "#7f1d1d" : "#052e16", color: bajo ? "#f87171" : "#4ade80" }}>
-                        {bajo ? "⚠ bajo" : "✓ ok"}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12, textTransform: "capitalize" }}>
-                      {i.categoria} · mín. {i.minimo} {i.unidad} · ${i.precio}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <button className="btn btn-danger" style={{ fontSize: 20, padding: "8px 20px" }} onClick={() => ajustarStock(i.id, -1)}>−</button>
-                      <span style={{ fontSize: 26, fontWeight: 900, color: bajo ? "#ef4444" : "#22c55e", flex: 1, textAlign: "center" }}>
-                        {i.cantidad} <span style={{ fontSize: 12, color: "#64748b" }}>{i.unidad}</span>
-                      </span>
-                      <button className="btn btn-primary" style={{ fontSize: 20, padding: "8px 20px" }} onClick={() => ajustarStock(i.id, +1)}>+</button>
-                    </div>
-                  </div>
-                );
-              })}
-              {inventario.length === 0 && <div className="empty">Sin artículos en inventario</div>}
-            </div>
-          )}
-
         </div>
 
-        {/* Nav inferior */}
+        {/* Nav */}
         <div className="bottom-nav">
           {TABS.map(t => (
             <button key={t.id} className={`nav-btn ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
@@ -763,29 +714,97 @@ export default function TallerBlanco() {
           ))}
         </div>
 
-        {/* ══ MODAL ORDEN (nueva / editar) ══ */}
+        {/* ══ MODAL ORDEN ══ */}
         {modal === "orden" && (
           <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <div className="modal-box">
               <div className="modal-handle" />
               <div className="card-title">{editId ? "Editar Orden" : "Nueva Orden"}</div>
-              {inp("cliente", "Cliente")}
+
+              {inp("cliente",  "Cliente")}
               {inp("vehiculo", "Vehículo")}
-              {inp("placa", "Placa")}
-              {inp("servicio", "Servicio")}
+              {inp("placa",    "Placa")}
+              {inp("servicio", "Servicio / Trabajo")}
               {inp("mecanico", "Mecánico")}
-              {inp("costo", "Costo total ($)", "number")}
-              {inp("fecha", "Fecha", "date")}
+              {inp("fecha",    "Fecha", "date")}
               <div className="form-group">
                 <label className="form-label">Estado</label>
-                <select className="form-select" value={form.estado || "pendiente"} onChange={e => setForm((p: any) => ({ ...p, estado: e.target.value }))}>
-                  <option value="pendiente">Pendiente</option>
-                  <option value="en proceso">En proceso</option>
-                  <option value="esperando repuesto">Esperando repuesto</option>
-                  <option value="completado">Completado</option>
+                <select className="form-select" value={form.estado || "pendiente"}
+                  onChange={e => setForm((p: any) => ({ ...p, estado: e.target.value }))}>
+                  {ESTADOS.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
                 </select>
               </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+
+              {/* Mano de obra */}
+              <div className="form-group">
+                <label className="form-label">Mano de obra ($)</label>
+                <input className="form-input" type="number" inputMode="numeric"
+                  placeholder="0"
+                  value={form.mano_obra || ""}
+                  onChange={e => setForm((p: any) => ({ ...p, mano_obra: e.target.value }))} />
+              </div>
+
+              {/* Repuestos */}
+              <div style={{ marginBottom: 14 }}>
+                <div className="form-label" style={{ marginBottom: 8 }}>Repuestos</div>
+
+                {repuestos.map((r, idx) => (
+                  <div key={idx} className="rep-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{r.nombre} ×{r.cantidad}</span>
+                      <button className="btn btn-danger btn-sm" style={{ padding: "3px 8px" }} onClick={() => quitarRepuesto(idx)}>✕</button>
+                    </div>
+                    <div className="rep-calc" style={{ marginTop: 4 }}>
+                      <span>Venta: {fmt(r.precioVenta * r.cantidad)}</span>
+                      <span>Costo (÷1.30): {fmt(costoRepuesto(r) * r.cantidad)}</span>
+                      <span style={{ color: "#fb923c" }}>Gan: {fmt(gananciaRepuesto(r) * r.cantidad)}</span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Agregar repuesto */}
+                <div style={{ background: "#0a0f1a", border: "1px dashed #334155", borderRadius: 6, padding: 10 }}>
+                  <div className="rep-row">
+                    <input className="form-input" placeholder="Nombre del repuesto"
+                      style={{ flex: 2, fontSize: 13, padding: "8px 10px", minHeight: 36 }}
+                      value={repForm.nombre}
+                      onChange={e => setRepForm(p => ({ ...p, nombre: e.target.value }))} />
+                    <input className="form-input" placeholder="$ Venta" type="number" inputMode="numeric"
+                      style={{ flex: 1, fontSize: 13, padding: "8px 10px", minHeight: 36 }}
+                      value={repForm.precioVenta}
+                      onChange={e => setRepForm(p => ({ ...p, precioVenta: e.target.value }))} />
+                    <input className="form-input" placeholder="Cant" type="number" inputMode="numeric"
+                      style={{ width: 56, fontSize: 13, padding: "8px 10px", minHeight: 36 }}
+                      value={repForm.cantidad}
+                      onChange={e => setRepForm(p => ({ ...p, cantidad: e.target.value }))} />
+                  </div>
+                  {repForm.precioVenta && (
+                    <div className="rep-calc" style={{ marginBottom: 8 }}>
+                      <span>Costo: {fmt(Number(repForm.precioVenta) / MARGEN * (Number(repForm.cantidad)||1))}</span>
+                      <span style={{ color: "#fb923c" }}>Ganancia: {fmt((Number(repForm.precioVenta) - Number(repForm.precioVenta)/MARGEN) * (Number(repForm.cantidad)||1))}</span>
+                    </div>
+                  )}
+                  <button className="btn btn-ghost btn-full btn-sm" onClick={agregarRepuesto}>+ Agregar repuesto</button>
+                </div>
+              </div>
+
+              {/* Resumen total */}
+              <div style={{ background: "#0a0f1a", borderRadius: 6, padding: "10px 12px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: "#64748b" }}>Mano de obra</span>
+                  <span>{fmt(Number(form.mano_obra || 0))}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: "#64748b" }}>Repuestos (venta)</span>
+                  <span>{fmt(repuestos.reduce((s,r) => s + r.precioVenta*(r.cantidad||1), 0))}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 900, borderTop: "1px solid #1e293b", paddingTop: 8, marginTop: 4 }}>
+                  <span style={{ color: "#64748b" }}>Total orden</span>
+                  <span style={{ color: "#22c55e" }}>{fmt(calcCostoOrden())}</span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
                 <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
                 <button className="btn btn-primary btn-full" onClick={guardarOrden}>{editId ? "Guardar cambios" : "Crear orden"}</button>
               </div>
@@ -794,49 +813,38 @@ export default function TallerBlanco() {
         )}
 
         {/* ══ MODAL PAGO PARCIAL ══ */}
-        {modal === "pago" && pagoOrdenId && (
-          <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
-            <div className="modal-box">
-              <div className="modal-handle" />
-              <div className="card-title">Registrar Pago Parcial</div>
-              {(() => {
-                const o = ordenes.find(x => x.id === pagoOrdenId);
-                if (!o) return null;
-                const saldo = saldoPendiente(o);
-                return (
-                  <>
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{o.cliente} · {o.folio}</div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                        <span style={{ color: "#64748b" }}>Total orden:</span>
-                        <span style={{ color: "#e2e8f0", fontWeight: 700 }}>{fmt(o.costo)}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                        <span style={{ color: "#64748b" }}>Ya pagado:</span>
-                        <span style={{ color: "#4ade80", fontWeight: 700 }}>{fmt(cobradoTotal(o))}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, marginTop: 4 }}>
-                        <span style={{ color: "#f59e0b", fontWeight: 700 }}>Saldo:</span>
-                        <span style={{ color: "#f59e0b", fontWeight: 700 }}>{fmt(saldo)}</span>
-                      </div>
+        {modal === "pago" && pagoOrdenId && (() => {
+          const o = ordenes.find(x => x.id === pagoOrdenId);
+          if (!o) return null;
+          const saldo = saldoPendiente(o);
+          return (
+            <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+              <div className="modal-box">
+                <div className="modal-handle" />
+                <div className="card-title">Pago Parcial</div>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{o.cliente} · {o.folio}</div>
+                  {[["Total orden", fmt(o.costo), "#e2e8f0"], ["Ya pagado", fmt(cobradoTotal(o)), "#4ade80"], ["Saldo", fmt(saldo), "#f59e0b"]].map(([l, v, c]) => (
+                    <div key={l as string} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                      <span style={{ color: "#64748b" }}>{l}</span>
+                      <span style={{ color: c as string, fontWeight: 700 }}>{v}</span>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Monto del pago ($)</label>
-                      <input className="form-input" type="number" inputMode="numeric"
-                        placeholder={`Máx. ${fmt(saldo)}`}
-                        value={pagoMonto}
-                        onChange={e => setPagoMonto(e.target.value)} />
-                    </div>
-                    <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                      <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
-                      <button className="btn btn-success btn-full" onClick={() => registrarPago(pagoOrdenId)}>Registrar pago</button>
-                    </div>
-                  </>
-                );
-              })()}
+                  ))}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Monto del pago ($)</label>
+                  <input className="form-input" type="number" inputMode="numeric"
+                    placeholder={`Máx ${fmt(saldo)}`}
+                    value={pagoMonto} onChange={e => setPagoMonto(e.target.value)} />
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
+                  <button className="btn btn-success btn-full" onClick={() => registrarPago(pagoOrdenId)}>Registrar</button>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ══ MODAL GASTO ══ */}
         {modal === "gasto" && (
@@ -845,12 +853,12 @@ export default function TallerBlanco() {
               <div className="modal-handle" />
               <div className="card-title">Registrar Gasto</div>
               {inp("concepto", "Concepto")}
-              {inp("monto", "Monto ($)", "number")}
+              {inp("monto",    "Monto ($)", "number")}
               <div className="form-group">
                 <label className="form-label">Categoría</label>
                 <select className="form-select" value={form.categoria || ""} onChange={e => setForm((p: any) => ({ ...p, categoria: e.target.value }))}>
                   <option value="">Seleccionar...</option>
-                  {["insumos", "fijo", "servicios", "equipo", "otro"].map(c => <option key={c} value={c}>{c}</option>)}
+                  {["insumos","fijo","servicios","equipo","otro"].map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               {inp("fecha", "Fecha", "date")}
@@ -862,16 +870,16 @@ export default function TallerBlanco() {
           </div>
         )}
 
-        {/* ══ MODAL CLIENTE (nuevo / editar) ══ */}
+        {/* ══ MODAL CLIENTE ══ */}
         {modal === "cliente" && (
           <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
             <div className="modal-box">
               <div className="modal-handle" />
               <div className="card-title">{editId ? "Editar Cliente" : "Nuevo Cliente"}</div>
-              {inp("nombre", "Nombre")}
+              {inp("nombre",   "Nombre")}
               {inp("telefono", "Teléfono")}
-              {inp("email", "Email")}
-              {inp("cuit", "CUIT / DNI")}
+              {inp("email",    "Email")}
+              {inp("cuit",     "CUIT / DNI")}
               <div className="form-group">
                 <label className="form-label">Vehículos (separados por coma)</label>
                 <input className="form-input" placeholder="Toyota Hilux, Ford Ranger"
@@ -892,28 +900,16 @@ export default function TallerBlanco() {
             <div className="modal-box">
               <div className="modal-handle" />
               <div className="card-title">🔑 Cambiar PIN</div>
-              <div className="form-group">
-                <label className="form-label">Nuevo PIN (4 dígitos)</label>
-                <input className="form-input" type="number" inputMode="numeric"
-                  maxLength={4} placeholder="Ej: 1234"
-                  value={form.nuevo_pin || ""}
-                  onChange={e => setForm((p: any) => ({ ...p, nuevo_pin: e.target.value.slice(0, 4) }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Confirmar PIN</label>
-                <input className="form-input" type="number" inputMode="numeric"
-                  maxLength={4} placeholder="Repetí el PIN"
-                  value={form.confirm_pin || ""}
-                  onChange={e => setForm((p: any) => ({ ...p, confirm_pin: e.target.value.slice(0, 4) }))} />
-              </div>
+              {inp("nuevo_pin",   "Nuevo PIN (4 dígitos)", "number")}
+              {inp("confirm_pin", "Confirmar PIN",         "number")}
               {form.nuevo_pin && form.confirm_pin && form.nuevo_pin !== form.confirm_pin && (
                 <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 12 }}>Los PINs no coinciden</div>
               )}
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                 <button className="btn btn-ghost btn-full" onClick={closeModal}>Cancelar</button>
                 <button className="btn btn-primary btn-full"
-                  disabled={!form.nuevo_pin || form.nuevo_pin.length !== 4 || form.nuevo_pin !== form.confirm_pin}
-                  onClick={async () => { await guardarNuevoPin(form.nuevo_pin); closeModal(); }}>
+                  onClick={async () => { await guardarNuevoPin(form.nuevo_pin); closeModal(); }}
+                  disabled={!form.nuevo_pin || form.nuevo_pin.length !== 4 || form.nuevo_pin !== form.confirm_pin}>
                   Guardar PIN
                 </button>
               </div>
